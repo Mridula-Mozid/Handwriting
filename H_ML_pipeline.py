@@ -203,7 +203,7 @@ all_model_results = []
 for model_name, model in models.items():
 
     print("\n================================================")
-    print(f"MODEL: {model_name}")
+    print(f"[{DATASET_TAG}][{model_name}] START")
     print("================================================")
 
     fold_metrics = []
@@ -212,7 +212,7 @@ for model_name, model in models.items():
 
     for train_idx, test_idx in cv_splits:
 
-        print(f"\nFold {fold_num}")
+        print(f"\n[{DATASET_TAG}][{model_name}][Fold {fold_num}] START")
 
         # -----------------------------------------------------------------
         # SPLIT
@@ -305,7 +305,7 @@ for model_name, model in models.items():
 
         for k, v in metrics.items():
 
-            print(f"{k}: {v:.4f}")
+            print(f"[{DATASET_TAG}][{model_name}][Fold {fold_num}] {k}: {v:.4f}")
 
         # -----------------------------------------------------------------
         # SAVE CONFUSION MATRIX
@@ -363,14 +363,14 @@ for model_name, model in models.items():
     std_metrics = metrics_df.std()
 
     print("\n================================================")
-    print(f"FINAL RESULTS: {model_name}")
+    print(f"[{DATASET_TAG}][{model_name}] FINAL RESULTS")
     print("================================================\n")
 
     for metric in mean_metrics.index:
 
         print(
 
-            f"{metric}: "
+            f"[{DATASET_TAG}][{model_name}] {metric}: "
             f"{mean_metrics[metric]:.4f} "
             f"± "
             f"{std_metrics[metric]:.4f}"

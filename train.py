@@ -426,8 +426,7 @@ def train_one_fold(
         scheduler.step(val_auc)
 
         print(
-            f"Fold {fold_num} | "
-            f"Epoch {epoch+1}/{EPOCHS} | "
+            f"[{DATASET_TAG}][Fold {fold_num}][Epoch {epoch+1}/{EPOCHS}] "
             f"Loss: {avg_loss:.4f} | "
             f"Acc: {val_acc:.4f} | "
             f"AUC: {val_auc:.4f}"
@@ -617,7 +616,7 @@ def run_cross_validation():
     ):
 
         print("\n================================================")
-        print(f"FOLD {fold_num}")
+        print(f"[{DATASET_TAG}][Fold {fold_num}] START")
         print("================================================\n")
 
         train_df = metadata_df.iloc[train_idx]
@@ -686,7 +685,7 @@ def run_cross_validation():
 
         for k, v in metrics.items():
 
-            print(f"{k}: {v:.4f}")
+            print(f"[{DATASET_TAG}][Fold {fold_num}] {k}: {v:.4f}")
 
         # ============================================================
         # SAVE PREDICTIONS
@@ -750,7 +749,7 @@ def run_cross_validation():
             model_path
         )
 
-        print(f"\nSaved model:\n{model_path}")
+        print(f"\n[{DATASET_TAG}][Fold {fold_num}] Saved model:\n{model_path}")
 
         fold_num += 1
 

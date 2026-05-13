@@ -103,23 +103,28 @@ python compare_datasets_results.py
 
 ### Run Individual Stages
 
-Each stage is independently executable and requires only its specific input data:
+Each stage is independently executable and should be run with dataset tags:
 
 ```bash
-# Preprocessing only (requires raw images from Thesis dataset)
-python preprocessing.py
+# Preprocessing
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\Public_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset"
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\BD_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset"
 
-# Feature extraction only (requires preprocessed images)
-python feature_extraction.py
+# Feature extraction
+python feature_extraction.py --dataset Public_Dataset
+python feature_extraction.py --dataset BD_Dataset
 
-# Deep learning only (requires preprocessed images and metadata)
-python train.py
+# Deep learning
+python train.py --dataset Public_Dataset
+python train.py --dataset BD_Dataset
 
-# Classical ML only (requires extracted features)
-python H_ML_pipeline.py
+# Classical ML
+python H_ML_pipeline.py --dataset Public_Dataset
+python H_ML_pipeline.py --dataset BD_Dataset
 
-# Interpretability only (requires trained models and preprocessed images)
-python H_grad_cam.py
+# Interpretability
+python H_grad_cam.py --dataset Public_Dataset --model-fold 1
+python H_grad_cam.py --dataset BD_Dataset --model-fold 1
 ```
 
 ## Output Artifacts and Naming Convention
@@ -172,6 +177,7 @@ Each stage includes a dedicated README:
 - [README_DEEP_LEARNING.md](README_DEEP_LEARNING.md) - Training strategy, architecture, and evaluation
 - [README_CLASSICAL_ML.md](README_CLASSICAL_ML.md) - Baseline model specifications and comparison framework
 - [README_INTERPRETABILITY.md](README_INTERPRETABILITY.md) - Grad-CAM methodology and clinical validation
+- [README_RESULTS.md](README_RESULTS.md) - Consolidated results, historical metrics snapshot, and clean rerun guide
 
 ## Performance Reporting
 
