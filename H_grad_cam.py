@@ -22,16 +22,35 @@ DEVICE = torch.device(
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-MODEL_PATH = PROJECT_ROOT / "trained_models_checkpoints" / "resnet18_fold_1.pth"
+import argparse
+
+parser = argparse.ArgumentParser(description='Generate Grad-CAM visualizations for a trained model and dataset')
+parser.add_argument('--dataset', type=str, default=None, help='Dataset tag (e.g., Public_Dataset or BD_Dataset)')
+parser.add_argument('--model-fold', type=int, default=1, help='Which fold model to load (default: 1)')
+args = parser.parse_args()
+
+MODEL_PATH = PROJECT_ROOT / "trained_models_checkpoints" / (args.dataset if args.dataset else "default") / f"resnet18_fold_{args.model_fold}.pth"
+
+preproc_root = PROJECT_ROOT / "preprocessed_images"
+if args.dataset:
+    preproc_root = preproc_root / args.dataset
 
 CLASS_FOLDERS = {
-    "parkinson": PROJECT_ROOT / "preprocessed_images" / "grayscale" / "parkinson",
-    "healthy": PROJECT_ROOT / "preprocessed_images" / "grayscale" / "healthy",
+    "parkinson": preproc_root / "grayscale" / "parkinson",
+    "healthy": preproc_root / "grayscale" / "healthy",
 }
 
-OUTPUT_DIR = PROJECT_ROOT / "model_interpretability_visualizations"
+OUTPUT_DIR = PROJECT_ROOT / "model_interpretability_visualizations" / (args.dataset if args.dataset else "default")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_DIR.mkdir(exist_ok=True)
+DATASET_TAG = args.dataset if args.dataset else "default"
+
+print("\n================================================")
+print("STARTING GRAD-CAM GENERATION")
+print("================================================")
+print(f"Dataset: {DATASET_TAG}")
+print(f"Model Path: {MODEL_PATH}")
+print(f"Output Directory: {OUTPUT_DIR}")
 
 # ============================================================
 # TRANSFORM
@@ -154,19 +173,22 @@ gradcam = GradCAM(
 # ============================================================
 
 def get_random_images(folder, count):
+    supported_exts = {".png", ".jpg", ".jpeg"}
 
     image_paths = sorted(
         path for path in folder.iterdir()
-        if path.is_file() and path.suffix.lower() == ".png"
+        if path.is_file() and path.suffix.lower() in supported_exts
     )
 
-    if len(image_paths) < count:
+    if len(image_paths) == 0:
 
         raise ValueError(
-            f"Not enough PNG files in {folder} to sample {count} images."
+            f"No supported images found in {folder}."
         )
 
-    return random.sample(image_paths, count)
+    sample_count = min(count, len(image_paths))
+
+    return random.sample(image_paths, sample_count)
 
 
 def generate_gradcam(image_path, class_name):

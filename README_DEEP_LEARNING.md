@@ -47,16 +47,24 @@ These transformations improve model robustness without sacrificing the clinical 
 
 ```
 trained_models_checkpoints/
-├── resnet18_fold_1.pth              (best model from fold 1)
-├── resnet18_fold_2.pth
-├── ...
-└── ...
+├── Public_Dataset/
+│   ├── resnet18_fold_1.pth
+│   ├── resnet18_fold_2.pth
+│   └── ...
+└── BD_Dataset/
+  ├── resnet18_fold_1.pth
+  ├── resnet18_fold_2.pth
+  └── ...
 
 deep_learning_results/
-├── fold_1_predictions.csv           (patient IDs, true labels, predictions, probabilities)
-├── fold_2_predictions.csv
-├── ...
-└── final_cross_validation_results.csv  (averaged metrics across folds)
+├── Public_Dataset/
+│   ├── fold_1_predictions.csv
+│   ├── fold_2_predictions.csv
+│   └── final_cross_validation_results.csv
+└── BD_Dataset/
+  ├── fold_1_predictions.csv
+  ├── fold_2_predictions.csv
+  └── final_cross_validation_results.csv
 ```
 
 ## Evaluation Metrics
@@ -75,10 +83,14 @@ The final reported metrics are the mean and standard deviation across all folds.
 ## Running the Pipeline
 
 ```bash
-python train.py
+# Public dataset
+python train.py --dataset Public_Dataset
+
+# BD dataset
+python train.py --dataset BD_Dataset
 ```
 
-Prerequisites: Requires preprocessed images and `preprocessed_images/metadata.csv` from the preprocessing stage.
+Prerequisites: Requires `preprocessed_images/Public_Dataset/metadata.csv` and/or `preprocessed_images/BD_Dataset/metadata.csv` from the preprocessing stage.
 
 Expected runtime: 1-2 hours on GPU, 5-10 hours on CPU.
 

@@ -2,9 +2,11 @@
 
 ## Study Purpose
 
-This project studies whether handwriting spirals can be used as a behavioral marker for Parkinson's disease. The current work is a unimodal handwriting study. It uses a public Kaggle handwriting dataset as the present benchmark, while your Bangladeshi Parkinson's and healthy data can later replace or extend it. That makes the current work useful in two ways. First, it gives you a working and testable baseline. Second, it gives you a clear structure that can later support a clinically grounded local dataset and, eventually, a multimodal study with facial expression data.
+This project studies whether handwriting spirals can be used as a behavioral marker for Parkinson's disease. The current work is a unimodal handwriting study run on two datasets with fully separated pipelines: `Public_Dataset` and `BD_Dataset`.
 
-The main goal of the current cycle was not only to train a model, but to build a clean and reproducible research pipeline. The pipeline had to start from raw spiral images, produce cleaned data, create handcrafted features, train a deep learning classifier, compare classical machine learning baselines, and generate explanations with Grad-CAM. That full cycle has now been completed.
+The pipeline was implemented so each dataset has its own preprocessing metadata, feature files, classical ML outputs, deep learning checkpoints/results, and Grad-CAM explanations. This avoids output mixing and allows direct cross-dataset comparison.
+
+The main goal of the current cycle was not only to train a model, but to build a clean and reproducible research pipeline. The pipeline starts from raw spiral images, produces cleaned data, creates handcrafted features, trains a deep learning classifier, compares classical machine learning baselines, and generates explanations with Grad-CAM. That full cycle has now been completed separately for both datasets.
 
 ## Methodology
 
@@ -20,15 +22,60 @@ The fifth stage was interpretability. Grad-CAM was run on the trained ResNet-18 
 
 ## Results
 
-The preprocessing stage completed successfully on 102 images, with 51 healthy and 51 Parkinson samples. No images were skipped. The output included cleaned grayscale images, binary masks, quality check images, and a metadata CSV file. This means the input data was successfully standardized and the rest of the pipeline had a stable base.
+The preprocessing stage completed successfully for both datasets:
 
-The feature extraction stage also completed successfully. It produced a feature matrix of shape 102 by 6118. That means each image was converted into a high-dimensional numerical description that classical machine learning could use. The presence of the patient ID column also means the dataset can still be split safely at the patient level.
+- `Public_Dataset`: 102 images (51 healthy, 51 Parkinson), 0 skipped
+- `BD_Dataset`: 36 images (15 healthy, 21 Parkinson), 0 skipped
 
-The deep learning stage completed five-fold cross-validation with ResNet-18. The final average results were 0.7862 accuracy, 0.7663 precision, 0.8900 sensitivity, 0.6444 specificity, 0.8097 F1-score, and 0.9515 ROC-AUC. In simple English, the model was very good at detecting Parkinson's cases, but it was weaker when trying to avoid false alarms on healthy cases. That is visible in the lower specificity compared with the sensitivity. This kind of pattern is common in medical screening systems where the model is tuned to be sensitive to disease.
+Each dataset produced its own cleaned grayscale images, binary masks, quality check images, and `metadata.csv` inside `preprocessed_images/<dataset>/`.
 
-The classical machine learning baseline also completed successfully. SVM achieved 0.7373 accuracy and 0.8899 ROC-AUC. Random Forest achieved 0.7538 accuracy and 0.8288 ROC-AUC. XGBoost achieved 0.7496 accuracy and 0.7860 ROC-AUC. In practical terms, the classical models were useful baselines, but they did not clearly beat the deep learning model. The ResNet-18 model gave the strongest overall screening performance in this run, especially in ROC-AUC and sensitivity.
+The feature extraction stage also completed successfully for both datasets. Feature matrices were:
 
-The interpretability stage produced Grad-CAM outputs for both Parkinson and healthy examples. These visualizations are now available as image files and can be used in a thesis figure or paper appendix. They help show that the model is responding to handwriting structure rather than random image noise.
+- `Public_Dataset`: 102 x 6118
+- `BD_Dataset`: 36 x 6118
+
+Patient IDs were preserved, allowing grouped patient-level splitting in all downstream evaluation.
+
+The deep learning stage completed five-fold cross-validation with ResNet-18 for each dataset.
+
+`Public_Dataset` deep learning means:
+
+- Accuracy: 0.7690
+- Precision: 0.7793
+- Sensitivity: 0.8133
+- Specificity: 0.6889
+- F1-score: 0.7670
+- ROC-AUC: 0.9563
+
+`BD_Dataset` deep learning means:
+
+- Accuracy: 0.5786
+- Precision: 0.5762
+- Sensitivity: 0.5500
+- Specificity: 0.6000
+- F1-score: 0.5067
+- ROC-AUC: 0.9067
+
+In practical terms, deep learning remained strong on ranking/discrimination (ROC-AUC) for both datasets, with stronger balanced classification on the public dataset than on BD.
+
+The classical machine learning baseline also completed successfully for both datasets.
+
+Best classical model by ROC-AUC in both datasets was SVM:
+
+- `Public_Dataset` SVM: Accuracy 0.7373, ROC-AUC 0.8899
+- `BD_Dataset` SVM: Accuracy 0.8071, ROC-AUC 0.8667
+
+Comparison summary:
+
+- On `Public_Dataset`, deep learning outperformed classical SVM in both accuracy and ROC-AUC.
+- On `BD_Dataset`, classical SVM achieved higher accuracy and specificity than deep learning, while deep learning kept slightly higher ROC-AUC.
+
+The interpretability stage produced Grad-CAM outputs for both Parkinson and healthy examples in each dataset-specific output folder:
+
+- `model_interpretability_visualizations/Public_Dataset/`
+- `model_interpretability_visualizations/BD_Dataset/`
+
+These visualizations support qualitative checking that the model responds to handwriting structure rather than irrelevant image background.
 
 ## Discussion
 
@@ -38,7 +85,7 @@ In relation to your larger vision, this is a strong first modality. Handwriting 
 
 In the current state, your work matches the vision in several important ways. It already uses real patient-oriented naming and patient-aware splitting. It already treats the problem as a healthcare task rather than a generic ML problem. It already includes interpretability, which is a major requirement in biomedical AI. It also already supports a future path toward a Bangladesh-specific dataset, which will make the work more locally relevant and more clinically valuable than a simple public benchmark study.
 
-At the same time, this is still unimodal, and it is still based on a public Kaggle dataset for now. That means the current results should be treated as a benchmark rather than the final clinical system. The next step is to replace or extend the current data with your Bangladeshi Parkinson's and healthy subjects. That will make the study more population-specific and more aligned with your real research vision.
+At the same time, this is still unimodal, and the BD dataset size is still relatively small. That means the current results should be treated as a strong benchmark stage rather than a final clinical system. The next step is to extend the dataset with more Bangladeshi Parkinson's and healthy subjects to improve robustness and external validity.
 
 ## Limitations
 
@@ -46,7 +93,7 @@ The current dataset is small. That limits how far the models can generalize. A s
 
 The current study is unimodal. It only uses handwriting. That means it cannot yet capture the full multimodal healthcare story that you described. The facial expression component still needs to be added later.
 
-The current data also comes from a public source, not from the Bangladeshi population you ultimately want to study. That means the present results are useful as a benchmark, but they are not yet the final population-specific result.
+The current data combines a public benchmark dataset with a BD dataset, but the BD cohort is still limited. This means the present results are useful and directionally strong, but they are not yet the final population-specific result.
 
 The current training pipeline is strong, but it still reflects the limits of the dataset size. Very deep or very complex models would not be justified here. The present choice of ResNet-18 is reasonable, but future work should still be tested carefully to avoid overfitting.
 
@@ -64,12 +111,12 @@ A final future direction is lightweight deployment. Since your vision is low-res
 
 ## Current Position in the Research Journey
 
-At this point, you are in a strong unimodal baseline stage. That is not a weak place to be. It is actually the correct place to be before moving into the more complex multimodal phase. You now have a complete handwriting pipeline, working code, usable outputs, and a clear methodological story.
+At this point, you are in a strong unimodal baseline stage with an added cross-dataset validation view. You now have a complete handwriting pipeline, working code, usable outputs, dataset-tagged artifacts, and a clear methodological story.
 
-So the honest answer is this: you are not yet at the final multimodal research goal, but you are definitely past the student-project stage. You now have the foundation for a real biomedical AI paper. The next leap is not more random model experiments. The next leap is adding your own Bangladeshi data and then extending this same clean pipeline into a multimodal study.
+So the honest answer is this: you are not yet at the final multimodal research goal, but you are definitely past the student-project stage. You now have the foundation for a real biomedical AI paper. The next leap is collecting more BD samples and extending this same clean, dataset-separated pipeline into a multimodal study.
 
 ## Conclusion
 
-This full cycle produced a working and research-oriented handwriting screening pipeline for Parkinson's disease. It cleaned the raw images, generated metadata, extracted handcrafted features, trained a deep learning model, tested classical machine learning baselines, and created Grad-CAM explanations. The results show that the system can already separate healthy and Parkinsonian handwriting reasonably well, especially when measured with ROC-AUC and sensitivity.
+This full cycle produced a working and research-oriented handwriting screening pipeline for Parkinson's disease. It cleaned raw images, generated metadata, extracted handcrafted features, trained deep learning models, tested classical machine learning baselines, and created Grad-CAM explanations for both `Public_Dataset` and `BD_Dataset` separately. The system now supports clean cross-dataset performance comparison.
 
-More importantly, the work now has a clear direction. It is no longer just a model on a dataset. It is the first half of a clinically grounded behavioral biomarker system. The unimodal handwriting branch is now ready to be carried forward into your Bangladeshi data and, later, into the multimodal handwriting-plus-face framework you described.
+More importantly, the work now has a clear direction. It is no longer just a model on a single dataset. It is the first half of a clinically grounded behavioral biomarker system with dataset-aware reproducibility. The unimodal handwriting branch is now ready to be expanded with larger BD data and, later, into the multimodal handwriting-plus-face framework.

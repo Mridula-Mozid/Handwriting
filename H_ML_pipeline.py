@@ -84,11 +84,20 @@ SEED = 42
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-FEATURE_DIR = PROJECT_ROOT / "handcrafted_features_classical_ml"
+import argparse
 
-RESULTS_DIR = PROJECT_ROOT / "classical_ml_results"
+parser = argparse.ArgumentParser(description='Run classical ML pipeline on handcrafted features')
+parser.add_argument('--dataset', type=str, default=None,
+                    help='Dataset tag used when features were saved (e.g., Public_Dataset or BD_Dataset)')
+args = parser.parse_args()
 
-RESULTS_DIR.mkdir(exist_ok=True)
+FEATURE_DIR = PROJECT_ROOT / "handcrafted_features_classical_ml" / (args.dataset if args.dataset else "default")
+
+RESULTS_DIR = PROJECT_ROOT / "classical_ml_results" / (args.dataset if args.dataset else "default")
+
+DATASET_TAG = args.dataset if args.dataset else "default"
+
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # =========================================================================
 # LOAD FEATURES
@@ -97,15 +106,14 @@ RESULTS_DIR.mkdir(exist_ok=True)
 print("\n================================================")
 print("LOADING FEATURES")
 print("================================================")
+print(f"Dataset: {DATASET_TAG}")
+print(f"Feature Directory: {FEATURE_DIR}")
 
 features = np.load(FEATURE_DIR / "handcrafted_features.npy")
 labels = np.load(FEATURE_DIR / "class_labels.npy")
 patient_ids = np.load(FEATURE_DIR / "patient_identifiers.npy")
 
 print(f"\nFeature Shape: {features.shape}")
-
-safe_pca_components = min(64, features.shape[0] - 1, features.shape[1])
-print(f"Using PCA Components: {safe_pca_components}")
 
 # =========================================================================
 # CROSS VALIDATION
@@ -117,6 +125,14 @@ sgkf = StratifiedGroupKFold(
     shuffle=True,
     random_state=SEED
 )
+
+cv_splits = list(sgkf.split(features, labels, patient_ids))
+
+min_train_samples = min(len(train_idx) for train_idx, _ in cv_splits)
+
+safe_pca_components = min(64, features.shape[1], max(1, min_train_samples - 1))
+
+print(f"Using PCA Components: {safe_pca_components}")
 
 # =========================================================================
 # MODELS
@@ -135,22 +151,43 @@ models = {
     ]),
 
     # =====================================================================
-    # RANDOM FOREST
-    # =====================================================================
+# RANDOM FOREST
+# =====================================================================
 
-    "RandomForest": Pipeline([
-        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
-        ('clf', RandomForestClassifier(n_estimators=300, max_depth=10, class_weight='balanced', random_state=SEED))
-    ]),
+"RandomForest": Pipeline([
+    ('scaler', StandardScaler()),
+    ('pca', PCA(
+        n_components=safe_pca_components,
+        random_state=SEED
+    )),
+    ('clf', RandomForestClassifier(
+        n_estimators=300,
+        max_depth=10,
+        class_weight='balanced',
+        random_state=SEED
+    ))
+]),
 
-    # =====================================================================
-    # XGBOOST
-    # =====================================================================
+# =====================================================================
+# XGBOOST
+# =====================================================================
 
-    "XGBoost": Pipeline([
-        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
-        ('clf', XGBClassifier(n_estimators=200, learning_rate=0.03, max_depth=4, subsample=0.8, colsample_bytree=0.8, eval_metric='logloss', random_state=SEED))
-    ])
+"XGBoost": Pipeline([
+    ('scaler', StandardScaler()),
+    ('pca', PCA(
+        n_components=safe_pca_components,
+        random_state=SEED
+    )),
+    ('clf', XGBClassifier(
+        n_estimators=200,
+        learning_rate=0.03,
+        max_depth=4,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        eval_metric='logloss',
+        random_state=SEED
+    ))
+])
 }
 
 # =========================================================================
@@ -173,12 +210,7 @@ for model_name, model in models.items():
 
     fold_num = 1
 
-    for train_idx, test_idx in sgkf.split(
-
-        features,
-        labels,
-        patient_ids
-    ):
+    for train_idx, test_idx in cv_splits:
 
         print(f"\nFold {fold_num}")
 
@@ -380,5 +412,6 @@ results_df.to_csv(
 print("\n================================================")
 print("CLASSICAL ML PIPELINE COMPLETE")
 print("================================================")
+print(f"Dataset: {DATASET_TAG}")
 
 print(f"\nSaved Results:\n{results_csv_path}")

@@ -19,9 +19,8 @@ np.random.seed(SEED)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-INPUT_BASE = Path(
-    r"D:/Final Semester/Thesis Work/Handwriting Dataset/workingData/drawings/spiral/All"
-)
+# Default input/output (kept for backward compatibility)
+DEFAULT_INPUT_BASE = Path(r"D:/Final Semester/Thesis Work/Codes/Dataset/Spiral_Handwriting")
 
 OUTPUT_BASE = PROJECT_ROOT / "preprocessed_images"
 
@@ -260,18 +259,46 @@ def save_quality_check(
         combined
     )
 
-def process_dataset():
+def process_dataset(input_base: Path = None, output_base: Path = None):
 
     print("\n================================================")
     print("STARTING HANDWRITING PREPROCESSING")
     print("================================================\n")
+
+    # Resolve input/output
+    if input_base is None:
+        input_base = DEFAULT_INPUT_BASE
+
+    if output_base is None:
+        output_base = OUTPUT_BASE
+
+    dataset_tag = output_base.name
+
+    # Reset metadata for each run so per-dataset outputs do not mix.
+    metadata_records.clear()
+
+    print(f"Dataset: {dataset_tag}")
+    print(f"Input Root: {input_base}")
+    print(f"Output Root: {output_base}")
+
+    # Per-dataset output directories (keeps different datasets separate)
+    global GRAY_DIR, BINARY_DIR, QC_DIR
+    GRAY_DIR = output_base / "grayscale"
+    BINARY_DIR = output_base / "binary"
+    QC_DIR = output_base / "quality_check"
+
+    for base_dir in [GRAY_DIR, BINARY_DIR]:
+        for cls in CLASSES:
+            os.makedirs(base_dir / cls, exist_ok=True)
+
+    os.makedirs(QC_DIR, exist_ok=True)
 
     total_processed = 0
     total_skipped = 0
 
     for cls in CLASSES:
 
-        input_folder = INPUT_BASE / cls
+        input_folder = Path(input_base) / cls
 
         if not input_folder.exists():
 
@@ -389,7 +416,8 @@ def process_dataset():
 
     metadata_df = pd.DataFrame(metadata_records)
 
-    metadata_path = OUTPUT_BASE / "metadata.csv"
+    # Save metadata inside the per-dataset output folder
+    metadata_path = output_base / "metadata.csv"
 
     metadata_df.to_csv(
         metadata_path,
@@ -403,6 +431,8 @@ def process_dataset():
     print("\n================================================")
     print("PREPROCESSING COMPLETE")
     print("================================================")
+
+    print(f"Dataset : {dataset_tag}")
 
     print(f"\nProcessed : {total_processed}")
 
@@ -424,4 +454,17 @@ def process_dataset():
 
 if __name__ == "__main__":
 
-    process_dataset()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Preprocess handwriting images for a dataset')
+    parser.add_argument('--input-base', type=str, default=None,
+                        help='Path to dataset root containing Healthy/ and Parkinson/ folders')
+    parser.add_argument('--output-base', type=str, default=None,
+                        help='Path to write preprocessed images and metadata (overrides default)')
+
+    args = parser.parse_args()
+
+    input_base = Path(args.input_base) if args.input_base else None
+    output_base = Path(args.output_base) if args.output_base else None
+
+    process_dataset(input_base=input_base, output_base=output_base)

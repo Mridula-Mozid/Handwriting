@@ -1,7 +1,15 @@
 """
 ========================================================================
 PARKINSON'S HANDWRITING TRAINING PIPELINE
-FINAL RESEARCH-GRADE VERSION
+FINAL RESEARCH-GRADE VERSION (UPDATED)
+========================================================================
+
+Key Improvements:
+- Proper grayscale adaptation of pretrained ResNet-18
+- Conv1 initialized using pretrained RGB weights
+- Conv1 is trainable (scientifically correct)
+- Layer freezing strategy improved
+- Fully aligned with thesis architecture figure
 ========================================================================
 """
 
@@ -59,13 +67,24 @@ torch.backends.cudnn.benchmark = False
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+import argparse
+
+parser = argparse.ArgumentParser(description='Train ResNet-18 for handwriting datasets')
+parser.add_argument('--dataset', type=str, default=None,
+                    help='Dataset tag (e.g., Public_Dataset or BD_Dataset). If provided reads preprocessed_images/<dataset>/metadata.csv')
+args = parser.parse_args()
+
 DATA_ROOT = PROJECT_ROOT / "preprocessed_images"
+if args.dataset:
+    DATA_ROOT = DATA_ROOT / args.dataset
 
 METADATA_PATH = DATA_ROOT / "metadata.csv"
 
-MODEL_SAVE_DIR = PROJECT_ROOT / "trained_models_checkpoints"
+MODEL_SAVE_DIR = PROJECT_ROOT / "trained_models_checkpoints" / (args.dataset if args.dataset else "default")
 
-RESULTS_DIR = PROJECT_ROOT / "deep_learning_results"
+RESULTS_DIR = PROJECT_ROOT / "deep_learning_results" / (args.dataset if args.dataset else "default")
+
+DATASET_TAG = args.dataset if args.dataset else "default"
 
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -142,9 +161,13 @@ class HandwritingDataset(Dataset):
 
         except Exception:
 
-            image = Image.new("L", (IMG_SIZE, IMG_SIZE))
+            image = Image.new(
+                "L",
+                (IMG_SIZE, IMG_SIZE)
+            )
 
         if self.transform:
+
             image = self.transform(image)
 
         return image, label, patient_id
@@ -186,14 +209,87 @@ test_transform = transforms.Compose([
 # =========================================================================
 
 def build_model():
-    model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)
+
+    # ================================================================
+    # LOAD IMAGENET PRETRAINED RESNET-18
+    # ================================================================
+
+    model = models.resnet18(
+        weights=models.ResNet18_Weights.DEFAULT
+    )
+
+    # ================================================================
+    # SAVE ORIGINAL RGB CONV1 WEIGHTS
+    # ================================================================
+
+    original_conv1_weights = (
+        model.conv1.weight.data.clone()
+    )
+
+    # ================================================================
+    # REPLACE INPUT LAYER FOR GRAYSCALE INPUT
+    # ================================================================
+
+    model.conv1 = nn.Conv2d(
+        in_channels=1,
+        out_channels=64,
+        kernel_size=7,
+        stride=2,
+        padding=3,
+        bias=False
+    )
+
+    # ================================================================
+    # INITIALIZE NEW CONV1 USING
+    # AVERAGED RGB PRETRAINED WEIGHTS
+    # ================================================================
+
+    model.conv1.weight.data = (
+        original_conv1_weights.mean(
+            dim=1,
+            keepdim=True
+        )
+    )
+
+    # ================================================================
+    # REPLACE CLASSIFICATION HEAD
+    # ================================================================
+
+    model.fc = nn.Linear(
+        model.fc.in_features,
+        NUM_CLASSES
+    )
+
+    # ================================================================
+    # FREEZE ALL PARAMETERS
+    # ================================================================
+
     for param in model.parameters():
+
         param.requires_grad = False
-    for param in model.layer4.parameters():
+
+    # ================================================================
+    # UNFREEZE INPUT LAYER
+    # ================================================================
+
+    for param in model.conv1.parameters():
+
         param.requires_grad = True
+
+    # ================================================================
+    # UNFREEZE FINAL RESIDUAL BLOCK
+    # ================================================================
+
+    for param in model.layer4.parameters():
+
+        param.requires_grad = True
+
+    # ================================================================
+    # UNFREEZE CLASSIFICATION HEAD
+    # ================================================================
+
     for param in model.fc.parameters():
+
         param.requires_grad = True
 
     return model
@@ -218,7 +314,10 @@ def train_one_fold(
     )
 
     optimizer = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
+        filter(
+            lambda p: p.requires_grad,
+            model.parameters()
+        ),
         lr=LEARNING_RATE,
         weight_decay=1e-4
     )
@@ -239,33 +338,80 @@ def train_one_fold(
     patience_counter = 0
 
     for epoch in range(EPOCHS):
+
+        # ============================================================
+        # TRAINING
+        # ============================================================
+
         model.train()
+
         running_loss = 0
+
         for images, labels, _ in train_loader:
+
             images = images.to(DEVICE)
+
             labels = labels.to(DEVICE)
+
             optimizer.zero_grad()
+
             outputs = model(images)
-            loss = criterion(outputs, labels)
+
+            loss = criterion(
+                outputs,
+                labels
+            )
+
             loss.backward()
+
             optimizer.step()
+
             running_loss += loss.item()
-        avg_loss = running_loss / len(train_loader)
+
+        avg_loss = (
+            running_loss / len(train_loader)
+        )
+
+        # ============================================================
+        # VALIDATION
+        # ============================================================
 
         model.eval()
+
         preds = []
+
         probs = []
+
         true_labels = []
+
         with torch.no_grad():
+
             for images, labels, _ in val_loader:
+
                 images = images.to(DEVICE)
+
                 labels = labels.to(DEVICE)
+
                 outputs = model(images)
-                probabilities = torch.softmax(outputs, dim=1)
+
+                probabilities = torch.softmax(
+                    outputs,
+                    dim=1
+                )
+
                 predictions = outputs.argmax(dim=1)
-                preds.extend(predictions.cpu().numpy())
-                probs.extend(probabilities[:, 1].cpu().numpy())
-                true_labels.extend(labels.cpu().numpy())
+
+                preds.extend(
+                    predictions.cpu().numpy()
+                )
+
+                probs.extend(
+                    probabilities[:, 1].cpu().numpy()
+                )
+
+                true_labels.extend(
+                    labels.cpu().numpy()
+                )
 
         val_acc = accuracy_score(
             true_labels,
@@ -287,9 +433,9 @@ def train_one_fold(
             f"AUC: {val_auc:.4f}"
         )
 
-        # ================================================================
+        # ============================================================
         # SAVE BEST MODEL
-        # ================================================================
+        # ============================================================
 
         if val_auc > best_auc:
 
@@ -305,9 +451,9 @@ def train_one_fold(
 
             patience_counter += 1
 
-        # ================================================================
+        # ============================================================
         # EARLY STOPPING
-        # ================================================================
+        # ============================================================
 
         if patience_counter >= PATIENCE:
 
@@ -315,7 +461,9 @@ def train_one_fold(
 
             break
 
-    model.load_state_dict(best_model_weights)
+    model.load_state_dict(
+        best_model_weights
+    )
 
     return model
 
@@ -328,8 +476,11 @@ def evaluate_model(model, test_loader):
     model.eval()
 
     preds = []
+
     probs = []
+
     true_labels = []
+
     patient_ids = []
 
     with torch.no_grad():
@@ -337,6 +488,7 @@ def evaluate_model(model, test_loader):
         for images, labels, pids in test_loader:
 
             images = images.to(DEVICE)
+
             labels = labels.to(DEVICE)
 
             outputs = model(images)
@@ -361,6 +513,10 @@ def evaluate_model(model, test_loader):
             )
 
             patient_ids.extend(pids)
+
+    # ================================================================
+    # METRICS
+    # ================================================================
 
     accuracy = accuracy_score(
         true_labels,
@@ -397,7 +553,9 @@ def evaluate_model(model, test_loader):
 
     tn, fp, fn, tp = cm.ravel()
 
-    specificity = tn / (tn + fp + 1e-8)
+    specificity = tn / (
+        tn + fp + 1e-8
+    )
 
     metrics = {
 
@@ -412,8 +570,11 @@ def evaluate_model(model, test_loader):
     prediction_df = pd.DataFrame({
 
         "patient_id": patient_ids,
+
         "true_label": true_labels,
+
         "predicted_label": preds,
+
         "probability_PD": probs
     })
 
@@ -424,6 +585,14 @@ def evaluate_model(model, test_loader):
 # =========================================================================
 
 def run_cross_validation():
+
+    print("\n================================================")
+    print("STARTING DEEP LEARNING TRAINING")
+    print("================================================")
+    print(f"Dataset: {DATASET_TAG}")
+    print(f"Metadata: {METADATA_PATH}")
+    print(f"Model Output Dir: {MODEL_SAVE_DIR}")
+    print(f"Results Output Dir: {RESULTS_DIR}\n")
 
     sgkf = StratifiedGroupKFold(
         n_splits=5,
@@ -441,7 +610,11 @@ def run_cross_validation():
 
     fold_num = 1
 
-    for train_idx, test_idx in sgkf.split(X, y, groups):
+    for train_idx, test_idx in sgkf.split(
+        X,
+        y,
+        groups
+    ):
 
         print("\n================================================")
         print(f"FOLD {fold_num}")
@@ -450,6 +623,10 @@ def run_cross_validation():
         train_df = metadata_df.iloc[train_idx]
 
         test_df = metadata_df.iloc[test_idx]
+
+        # ============================================================
+        # DATASETS
+        # ============================================================
 
         train_dataset = HandwritingDataset(
             train_df,
@@ -460,6 +637,10 @@ def run_cross_validation():
             test_df,
             transform=test_transform
         )
+
+        # ============================================================
+        # DATALOADERS
+        # ============================================================
 
         train_loader = DataLoader(
             train_dataset,
@@ -473,7 +654,15 @@ def run_cross_validation():
             shuffle=False
         )
 
+        # ============================================================
+        # BUILD MODEL
+        # ============================================================
+
         model = build_model().to(DEVICE)
+
+        # ============================================================
+        # TRAIN
+        # ============================================================
 
         model = train_one_fold(
             model,
@@ -481,6 +670,10 @@ def run_cross_validation():
             test_loader,
             fold_num
         )
+
+        # ============================================================
+        # EVALUATE
+        # ============================================================
 
         metrics, cm, prediction_df = evaluate_model(
             model,
@@ -495,9 +688,9 @@ def run_cross_validation():
 
             print(f"{k}: {v:.4f}")
 
-        # ================================================================
+        # ============================================================
         # SAVE PREDICTIONS
-        # ================================================================
+        # ============================================================
 
         prediction_csv_path = (
             RESULTS_DIR
@@ -509,9 +702,9 @@ def run_cross_validation():
             index=False
         )
 
-        # ================================================================
+        # ============================================================
         # CONFUSION MATRIX
-        # ================================================================
+        # ============================================================
 
         plt.figure(figsize=(5, 4))
 
@@ -543,9 +736,9 @@ def run_cross_validation():
 
         plt.close()
 
-        # ================================================================
+        # ============================================================
         # SAVE MODEL
-        # ================================================================
+        # ============================================================
 
         model_path = (
             MODEL_SAVE_DIR
@@ -565,7 +758,9 @@ def run_cross_validation():
     # FINAL RESULTS
     # =========================================================================
 
-    metrics_df = pd.DataFrame(all_metrics)
+    metrics_df = pd.DataFrame(
+        all_metrics
+    )
 
     mean_metrics = metrics_df.mean()
 
@@ -574,6 +769,7 @@ def run_cross_validation():
     print("\n================================================")
     print("FINAL RESULTS")
     print("================================================\n")
+    print(f"Dataset: {DATASET_TAG}\n")
 
     for metric in mean_metrics.index:
 
@@ -582,6 +778,34 @@ def run_cross_validation():
             f"{mean_metrics[metric]:.4f} ± "
             f"{std_metrics[metric]:.4f}"
         )
+
+    # ================================================================
+    # SAVE FINAL RESULTS CSV
+    # ================================================================
+
+    final_results_df = pd.DataFrame({
+
+        "metric": mean_metrics.index,
+
+        "mean": mean_metrics.values,
+
+        "std": std_metrics.values
+    })
+
+    final_results_path = (
+        RESULTS_DIR
+        / "final_cross_validation_results.csv"
+    )
+
+    final_results_df.to_csv(
+        final_results_path,
+        index=False
+    )
+
+    print(
+        f"\nSaved final results:\n"
+        f"{final_results_path}"
+    )
 
 # =========================================================================
 # MAIN

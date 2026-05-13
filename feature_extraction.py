@@ -50,11 +50,23 @@ warnings.filterwarnings("ignore")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+import argparse
+
+parser = argparse.ArgumentParser(description='Extract handcrafted features for a dataset')
+parser.add_argument('--dataset', type=str, default=None,
+                    help='Dataset tag (e.g., Public_Dataset or BD_Dataset). If provided, will read from preprocessed_images/<dataset>')
+args = parser.parse_args()
+
 DATA_ROOT = PROJECT_ROOT / "preprocessed_images"
+
+if args.dataset:
+    DATA_ROOT = DATA_ROOT / args.dataset
 
 METADATA_PATH = DATA_ROOT / "metadata.csv"
 
-FEATURE_SAVE_DIR = PROJECT_ROOT / "handcrafted_features_classical_ml"
+FEATURE_SAVE_DIR = PROJECT_ROOT / "handcrafted_features_classical_ml" / (args.dataset if args.dataset else "default")
+
+DATASET_TAG = args.dataset if args.dataset else "default"
 
 os.makedirs(FEATURE_SAVE_DIR, exist_ok=True)
 
@@ -176,6 +188,8 @@ feature_rows = []
 print("\n================================================")
 print("EXTRACTING HANDCRAFTED FEATURES")
 print("================================================\n")
+print(f"Dataset: {DATASET_TAG}")
+print(f"Metadata: {METADATA_PATH}\n")
 
 for idx, row in tqdm(metadata_df.iterrows(), total=len(metadata_df)):
 
@@ -281,6 +295,8 @@ features_df.to_csv(csv_path, index=False)
 print("\n================================================")
 print("FEATURE EXTRACTION COMPLETE")
 print("================================================")
+
+print(f"Dataset: {DATASET_TAG}")
 
 print(f"\nTotal Samples: {len(all_features)}")
 

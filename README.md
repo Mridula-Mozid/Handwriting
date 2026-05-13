@@ -4,7 +4,7 @@
 
 This research project develops and validates machine learning approaches for detecting Parkinson's disease from handwritten spiral patterns. The study implements both deep learning (CNNs) and classical machine learning (SVM, Random Forest, XGBoost) pipelines, enabling comprehensive performance comparison and clinical interpretability analysis.
 
-The raw handwriting dataset now uses a consistent naming scheme: healthy samples are named with the `HP` prefix and Parkinson samples with the `PP` prefix, followed by zero-padded patient and spiral image indices. This keeps preprocessing, metadata generation, and downstream model tracking stable and publication-friendly.
+The raw handwriting datasets now use consistent naming schemes. Public dataset samples use `HP` (healthy) and `PP` (Parkinson), while BD dataset samples use `BHP` (healthy) and `BPP` (Parkinson), followed by zero-padded patient IDs. This keeps preprocessing, metadata generation, and downstream tracking stable and publication-friendly.
 
 ## Scientific Motivation
 
@@ -16,21 +16,31 @@ The research pipeline operates on spiral handwriting images organized by patient
 
 ```
 ├── preprocessed_images/
-│   ├── grayscale/           (intensity-preserved preprocessing)
-│   ├── binary/              (binary masks for feature extraction)
-│   └── quality_check/       (verification visualizations)
+│   ├── Public_Dataset/
+│   │   ├── grayscale/
+│   │   ├── binary/
+│   │   ├── quality_check/
+│   │   └── metadata.csv
+│   └── BD_Dataset/
+│       ├── grayscale/
+│       ├── binary/
+│       ├── quality_check/
+│       └── metadata.csv
 ├── handcrafted_features_classical_ml/
-│   ├── handcrafted_features.npy
-│   ├── class_labels.npy
-│   └── patient_identifiers.npy
+│   ├── Public_Dataset/
+│   └── BD_Dataset/
 ├── trained_models_checkpoints/
-│   └── resnet18_fold_*.pth
+│   ├── Public_Dataset/
+│   └── BD_Dataset/
 ├── deep_learning_results/
-│   └── fold_*_predictions.csv
+│   ├── Public_Dataset/
+│   └── BD_Dataset/
 ├── classical_ml_results/
-│   └── classical_ml_results.csv
+│   ├── Public_Dataset/
+│   └── BD_Dataset/
 └── model_interpretability_visualizations/
-    └── gradcam_*.png
+    ├── Public_Dataset/
+    └── BD_Dataset/
 ```
 
 For a plain-English explanation of the generated folders and CSV files, see [README_DATA_FILES.md](README_DATA_FILES.md). For the full journal-style write-up, see [REPORT_JOURNAL_STYLE.md](REPORT_JOURNAL_STYLE.md).
@@ -54,7 +64,7 @@ Generates Grad-CAM visualizations from trained deep learning models, identifying
 
 ## Execution Instructions
 
-### Run Full Pipeline
+### Run Full Pipeline (Both Datasets)
 
 ```bash
 # Activate virtual environment
@@ -64,12 +74,31 @@ python -m venv .venv
 # Install dependencies
 pip install -r requirements.txt
 
-# Execute stages sequentially
-python preprocessing.py
-python feature_extraction.py
-python train.py
-python H_ML_pipeline.py
-python H_grad_cam.py
+# Optional: normalize BD image names to BHP/BPP convention
+python rename_bd_files.py
+
+# 1) Preprocess each dataset separately
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\Public_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset"
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\BD_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset"
+
+# 2) Extract handcrafted features per dataset
+python feature_extraction.py --dataset Public_Dataset
+python feature_extraction.py --dataset BD_Dataset
+
+# 3) Run classical ML per dataset
+python H_ML_pipeline.py --dataset Public_Dataset
+python H_ML_pipeline.py --dataset BD_Dataset
+
+# 4) Train deep learning per dataset
+python train.py --dataset Public_Dataset
+python train.py --dataset BD_Dataset
+
+# 5) Generate Grad-CAM per dataset (example uses fold 1)
+python H_grad_cam.py --dataset Public_Dataset --model-fold 1
+python H_grad_cam.py --dataset BD_Dataset --model-fold 1
+
+# 6) Create cross-dataset comparison outputs
+python compare_datasets_results.py
 ```
 
 ### Run Individual Stages
@@ -97,12 +126,13 @@ python H_grad_cam.py
 
 All output directories use research-grade descriptive names reflecting their purpose:
 
-- `preprocessed_images/` - Standardized image dataset
-- `handcrafted_features_classical_ml/` - Extracted statistical features
-- `trained_models_checkpoints/` - Saved neural network weights
-- `deep_learning_results/` - DL model performance metrics
-- `classical_ml_results/` - Classical ML performance metrics
-- `model_interpretability_visualizations/` - Grad-CAM heatmaps
+- `preprocessed_images/<dataset>/` - Standardized images and per-dataset metadata
+- `handcrafted_features_classical_ml/<dataset>/` - Extracted statistical features
+- `trained_models_checkpoints/<dataset>/` - Saved neural network weights
+- `deep_learning_results/<dataset>/` - DL fold predictions and final summary CSV
+- `classical_ml_results/<dataset>/` - Classical ML metrics and confusion matrices
+- `model_interpretability_visualizations/<dataset>/` - Grad-CAM heatmaps
+- `results/dataset_comparison_summary.csv` - Consolidated Public vs BD comparison table
 
 All files within these directories use meaningful, publication-ready names enabling immediate recognition of content and stage origin.
 
