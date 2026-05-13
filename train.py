@@ -59,13 +59,13 @@ torch.backends.cudnn.benchmark = False
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-DATA_ROOT = PROJECT_ROOT / "preprocessed_handwriting"
+DATA_ROOT = PROJECT_ROOT / "preprocessed_images"
 
 METADATA_PATH = DATA_ROOT / "metadata.csv"
 
-MODEL_SAVE_DIR = PROJECT_ROOT / "saved_models"
+MODEL_SAVE_DIR = PROJECT_ROOT / "trained_models_checkpoints"
 
-RESULTS_DIR = PROJECT_ROOT / "results"
+RESULTS_DIR = PROJECT_ROOT / "deep_learning_results"
 
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -186,47 +186,13 @@ test_transform = transforms.Compose([
 # =========================================================================
 
 def build_model():
-
-    model = models.resnet18(
-        weights=models.ResNet18_Weights.DEFAULT
-    )
-
-    # ---------------------------------------------------------------------
-    # GRAYSCALE INPUT
-    # ---------------------------------------------------------------------
-
-    model.conv1 = nn.Conv2d(
-        1,
-        64,
-        kernel_size=7,
-        stride=2,
-        padding=3,
-        bias=False
-    )
-
-    # ---------------------------------------------------------------------
-    # CLASSIFIER
-    # ---------------------------------------------------------------------
-
-    model.fc = nn.Linear(
-        model.fc.in_features,
-        NUM_CLASSES
-    )
-
-    # ---------------------------------------------------------------------
-    # FREEZE EARLY LAYERS
-    # ---------------------------------------------------------------------
-
+    model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)
     for param in model.parameters():
         param.requires_grad = False
-
-    # ---------------------------------------------------------------------
-    # UNFREEZE LATE LAYERS
-    # ---------------------------------------------------------------------
-
     for param in model.layer4.parameters():
         param.requires_grad = True
-
     for param in model.fc.parameters():
         param.requires_grad = True
 
@@ -273,71 +239,33 @@ def train_one_fold(
     patience_counter = 0
 
     for epoch in range(EPOCHS):
-
-        # ================================================================
-        # TRAIN
-        # ================================================================
-
         model.train()
-
         running_loss = 0
-
         for images, labels, _ in train_loader:
-
             images = images.to(DEVICE)
             labels = labels.to(DEVICE)
-
             optimizer.zero_grad()
-
             outputs = model(images)
-
             loss = criterion(outputs, labels)
-
             loss.backward()
-
             optimizer.step()
-
             running_loss += loss.item()
-
         avg_loss = running_loss / len(train_loader)
 
-        # ================================================================
-        # VALIDATION
-        # ================================================================
-
         model.eval()
-
         preds = []
         probs = []
         true_labels = []
-
         with torch.no_grad():
-
             for images, labels, _ in val_loader:
-
                 images = images.to(DEVICE)
                 labels = labels.to(DEVICE)
-
                 outputs = model(images)
-
-                probabilities = torch.softmax(
-                    outputs,
-                    dim=1
-                )
-
+                probabilities = torch.softmax(outputs, dim=1)
                 predictions = outputs.argmax(dim=1)
-
-                preds.extend(
-                    predictions.cpu().numpy()
-                )
-
-                probs.extend(
-                    probabilities[:, 1].cpu().numpy()
-                )
-
-                true_labels.extend(
-                    labels.cpu().numpy()
-                )
+                preds.extend(predictions.cpu().numpy())
+                probs.extend(probabilities[:, 1].cpu().numpy())
+                true_labels.extend(labels.cpu().numpy())
 
         val_acc = accuracy_score(
             true_labels,

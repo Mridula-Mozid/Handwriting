@@ -1,25 +1,4 @@
-"""
-====================================================================
-PARKINSON'S HANDWRITING PREPROCESSING PIPELINE
-FINAL RESEARCH-GRADE VERSION
-====================================================================
-
-MAIN IMPROVEMENTS
------------------
-
-1. Better background removal
-2. Adaptive thresholding
-3. Morphological cleanup
-4. Stroke-focused preprocessing
-5. Noise reduction
-6. Better cropping
-7. Better Grad-CAM interpretability
-8. Reduced shortcut learning
-9. Multimodal-ready metadata
-10. Publication-oriented preprocessing
-
-====================================================================
-"""
+"""Preprocess handwriting spiral images for downstream model training and analysis."""
 
 import os
 import cv2
@@ -33,36 +12,23 @@ from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
-# ==============================================================
-# REPRODUCIBILITY
-# ==============================================================
-
 SEED = 42
 
 random.seed(SEED)
 np.random.seed(SEED)
 
-# ==============================================================
-# PATHS
-# ==============================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-THESIS_ROOT = PROJECT_ROOT.parents[1]
-
-INPUT_BASE = (
-    THESIS_ROOT
-    / "Handwriting Dataset"
-    / "workingData"
-    / "drawings"
-    / "spiral"
-    / "all"
+INPUT_BASE = Path(
+    r"D:/Final Semester/Thesis Work/Handwriting Dataset/workingData/drawings/spiral/All"
 )
 
-OUTPUT_BASE = PROJECT_ROOT / "preprocessed_handwriting"
+OUTPUT_BASE = PROJECT_ROOT / "preprocessed_images"
 
 GRAY_DIR = OUTPUT_BASE / "grayscale"
+
 BINARY_DIR = OUTPUT_BASE / "binary"
+
 QC_DIR = OUTPUT_BASE / "quality_check"
 
 CLASSES = ["healthy", "parkinson"]
@@ -70,6 +36,10 @@ CLASSES = ["healthy", "parkinson"]
 IMG_SIZE = 224
 
 SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg"]
+
+MIN_COMPONENT_AREA = 40
+
+PADDING = 20
 
 for base_dir in [GRAY_DIR, BINARY_DIR]:
 
@@ -80,10 +50,6 @@ for base_dir in [GRAY_DIR, BINARY_DIR]:
 os.makedirs(QC_DIR, exist_ok=True)
 
 metadata_records = []
-
-# ==============================================================
-# IMAGE VALIDATION
-# ==============================================================
 
 def validate_image(img):
 
@@ -100,25 +66,23 @@ def validate_image(img):
 
     return True
 
-# ==============================================================
-# FOREGROUND NORMALIZATION
-# ==============================================================
+def extract_patient_id(filename):
+    stem = Path(filename).stem
+
+    parts = stem.split("_")
+
+    return parts[0]
 
 def normalize_foreground(binary_img):
-
     white_ratio = np.mean(binary_img > 127)
 
     if white_ratio > 0.5:
+
         binary_img = cv2.bitwise_not(binary_img)
 
     return binary_img
 
-# ==============================================================
-# REMOVE SMALL ARTIFACTS
-# ==============================================================
-
 def remove_small_components(binary_img):
-
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         binary_img,
         connectivity=8
@@ -126,47 +90,34 @@ def remove_small_components(binary_img):
 
     cleaned = np.zeros_like(binary_img)
 
-    min_area = 40
-
     for i in range(1, num_labels):
 
         area = stats[i, cv2.CC_STAT_AREA]
 
-        if area >= min_area:
+        if area >= MIN_COMPONENT_AREA:
 
             cleaned[labels == i] = 255
 
     return cleaned
 
-# ==============================================================
-# CROPPING
-# ==============================================================
-
 def crop_to_content(img):
-
     coords = cv2.findNonZero(img)
 
     if coords is None:
+
         return img
 
     x, y, w, h = cv2.boundingRect(coords)
 
-    padding = 20
+    x = max(x - PADDING, 0)
+    y = max(y - PADDING, 0)
 
-    x = max(x - padding, 0)
-    y = max(y - padding, 0)
-
-    w = min(w + 2 * padding, img.shape[1] - x)
-    h = min(h + 2 * padding, img.shape[0] - y)
+    w = min(w + 2 * PADDING, img.shape[1] - x)
+    h = min(h + 2 * PADDING, img.shape[0] - y)
 
     return img[y:y+h, x:x+w]
 
-# ==============================================================
-# RESIZE WITH PADDING
-# ==============================================================
-
 def resize_with_padding(img, size=224):
-
     h, w = img.shape[:2]
 
     scale = size / max(h, w)
@@ -192,45 +143,16 @@ def resize_with_padding(img, size=224):
 
     return canvas
 
-# ==============================================================
-# PATIENT ID
-# ==============================================================
-
-def extract_patient_id(filename):
-
-    stem = Path(filename).stem
-
-    parts = stem.split("_")
-
-    if len(parts) >= 2:
-        return parts[1]
-
-    return stem
-
-# ==============================================================
-# MAIN PREPROCESSING
-# ==============================================================
-
 def preprocess_image(img):
-
-    # ----------------------------------------------------------
-    # 1. Grayscale
-    # ----------------------------------------------------------
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # ----------------------------------------------------------
-    # 2. Denoising
-    # ----------------------------------------------------------
+    gray = cv2.cvtColor(
+        img,
+        cv2.COLOR_BGR2GRAY
+    )
 
     denoised = cv2.fastNlMeansDenoising(
         gray,
         h=10
     )
-
-    # ----------------------------------------------------------
-    # 3. CLAHE
-    # ----------------------------------------------------------
 
     clahe = cv2.createCLAHE(
         clipLimit=2.0,
@@ -239,22 +161,20 @@ def preprocess_image(img):
 
     enhanced = clahe.apply(denoised)
 
-    # ----------------------------------------------------------
-    # 4. Adaptive Thresholding
-    # ----------------------------------------------------------
-
     binary = cv2.adaptiveThreshold(
+
         enhanced,
+
         255,
+
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+
         cv2.THRESH_BINARY_INV,
+
         31,
+
         11
     )
-
-    # ----------------------------------------------------------
-    # 5. Morphological Cleanup
-    # ----------------------------------------------------------
 
     kernel = np.ones((2, 2), np.uint8)
 
@@ -270,21 +190,9 @@ def preprocess_image(img):
         kernel
     )
 
-    # ----------------------------------------------------------
-    # 6. Remove Tiny Components
-    # ----------------------------------------------------------
-
     binary = remove_small_components(binary)
 
-    # ----------------------------------------------------------
-    # 7. Normalize Foreground
-    # ----------------------------------------------------------
-
     binary = normalize_foreground(binary)
-
-    # ----------------------------------------------------------
-    # 8. Stroke-Focused Grayscale
-    # ----------------------------------------------------------
 
     masked_gray = cv2.bitwise_and(
         enhanced,
@@ -292,17 +200,9 @@ def preprocess_image(img):
         mask=binary
     )
 
-    # ----------------------------------------------------------
-    # 9. Crop
-    # ----------------------------------------------------------
-
     cropped_gray = crop_to_content(masked_gray)
 
     cropped_binary = crop_to_content(binary)
-
-    # ----------------------------------------------------------
-    # 10. Resize
-    # ----------------------------------------------------------
 
     final_gray = resize_with_padding(
         cropped_gray,
@@ -316,13 +216,18 @@ def preprocess_image(img):
 
     return final_gray, final_binary
 
-# ==============================================================
-# QUALITY CHECK
-# ==============================================================
+def save_quality_check(
 
-def save_quality_check(original, gray, binary, filename):
+    original,
+    gray,
+    binary,
+    filename
+):
 
-    original = cv2.resize(original, (224, 224))
+    original = cv2.resize(
+        original,
+        (224, 224)
+    )
 
     if len(original.shape) == 2:
 
@@ -342,6 +247,7 @@ def save_quality_check(original, gray, binary, filename):
     )
 
     combined = np.hstack([
+
         original,
         gray_bgr,
         binary_bgr
@@ -349,16 +255,15 @@ def save_quality_check(original, gray, binary, filename):
 
     save_path = QC_DIR / filename
 
-    cv2.imwrite(str(save_path), combined)
-
-# ==============================================================
-# PROCESS DATASET
-# ==============================================================
+    cv2.imwrite(
+        str(save_path),
+        combined
+    )
 
 def process_dataset():
 
     print("\n================================================")
-    print("STARTING PREPROCESSING")
+    print("STARTING HANDWRITING PREPROCESSING")
     print("================================================\n")
 
     total_processed = 0
@@ -367,6 +272,12 @@ def process_dataset():
     for cls in CLASSES:
 
         input_folder = INPUT_BASE / cls
+
+        if not input_folder.exists():
+
+            raise FileNotFoundError(
+                f"Missing folder:\n{input_folder}"
+            )
 
         print(f"\nProcessing class: {cls}")
 
@@ -383,17 +294,38 @@ def process_dataset():
 
             try:
 
+                # --------------------------------------------------
+                # Load image
+                # --------------------------------------------------
+
                 img = cv2.imread(str(img_path))
+
+                # --------------------------------------------------
+                # Validate
+                # --------------------------------------------------
 
                 if not validate_image(img):
 
                     total_skipped += 1
                     continue
 
+                # --------------------------------------------------
+                # Preprocess
+                # --------------------------------------------------
+
                 gray_img, binary_img = preprocess_image(img)
 
-                gray_save_path = GRAY_DIR / cls / img_name
-                binary_save_path = BINARY_DIR / cls / img_name
+                # --------------------------------------------------
+                # Save outputs
+                # --------------------------------------------------
+
+                gray_save_path = (
+                    GRAY_DIR / cls / img_name
+                )
+
+                binary_save_path = (
+                    BINARY_DIR / cls / img_name
+                )
 
                 cv2.imwrite(
                     str(gray_save_path),
@@ -405,6 +337,10 @@ def process_dataset():
                     binary_img
                 )
 
+                # --------------------------------------------------
+                # Quality check
+                # --------------------------------------------------
+
                 save_quality_check(
                     img,
                     gray_img,
@@ -412,16 +348,28 @@ def process_dataset():
                     img_name
                 )
 
-                patient_id = extract_patient_id(img_name)
+                # --------------------------------------------------
+                # Metadata
+                # --------------------------------------------------
+
+                patient_id = extract_patient_id(
+                    img_name
+                )
 
                 metadata_records.append({
 
                     "filename": img_name,
+
                     "patient_id": patient_id,
+
                     "class": cls,
+
                     "gray_path": str(gray_save_path),
+
                     "binary_path": str(binary_save_path),
+
                     "height": img.shape[0],
+
                     "width": img.shape[1]
                 })
 
@@ -430,9 +378,14 @@ def process_dataset():
             except Exception as e:
 
                 print(f"\nError processing: {img_name}")
+
                 print(e)
 
                 total_skipped += 1
+
+    # ==========================================================
+    # SAVE METADATA
+    # ==========================================================
 
     metadata_df = pd.DataFrame(metadata_records)
 
@@ -443,19 +396,31 @@ def process_dataset():
         index=False
     )
 
+    # ==========================================================
+    # FINAL SUMMARY
+    # ==========================================================
+
     print("\n================================================")
     print("PREPROCESSING COMPLETE")
     print("================================================")
 
-    print(f"\nProcessed: {total_processed}")
-    print(f"Skipped: {total_skipped}")
+    print(f"\nProcessed : {total_processed}")
 
-    print(f"\nMetadata saved:")
+    print(f"Skipped   : {total_skipped}")
+
+    print(f"\nMetadata CSV:")
+
     print(metadata_path)
 
-# ==============================================================
-# MAIN
-# ==============================================================
+    print("\nSaved Outputs:")
+
+    print(f"Grayscale -> {GRAY_DIR}")
+
+    print(f"Binary    -> {BINARY_DIR}")
+
+    print("\nQuality Check Folder:")
+
+    print(QC_DIR)
 
 if __name__ == "__main__":
 

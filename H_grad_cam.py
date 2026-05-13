@@ -22,26 +22,14 @@ DEVICE = torch.device(
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-MODEL_PATH = (
-    PROJECT_ROOT
-    / "saved_models"
-    / "efficientnet_fold_1.pth"
-)
-
-IMAGE_PATH = (
-    PROJECT_ROOT
-    / "preprocessed_handwriting"
-    / "grayscale"
-    / "parkinson"
-    / "V01PE01.png"
-)
+MODEL_PATH = PROJECT_ROOT / "trained_models_checkpoints" / "resnet18_fold_1.pth"
 
 CLASS_FOLDERS = {
-    "parkinson": PROJECT_ROOT / "preprocessed_handwriting" / "grayscale" / "parkinson",
-    "healthy": PROJECT_ROOT / "preprocessed_handwriting" / "grayscale" / "healthy",
+    "parkinson": PROJECT_ROOT / "preprocessed_images" / "grayscale" / "parkinson",
+    "healthy": PROJECT_ROOT / "preprocessed_images" / "grayscale" / "healthy",
 }
 
-OUTPUT_DIR = PROJECT_ROOT / "gradcam_outputs"
+OUTPUT_DIR = PROJECT_ROOT / "model_interpretability_visualizations"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -64,24 +52,9 @@ transform = transforms.Compose([
 # ============================================================
 
 def build_model():
-
-    model = models.efficientnet_b0(
-        weights=None
-    )
-
-    model.features[0][0] = nn.Conv2d(
-        1,
-        32,
-        kernel_size=3,
-        stride=2,
-        padding=1,
-        bias=False
-    )
-
-    model.classifier[1] = nn.Linear(
-        model.classifier[1].in_features,
-        2
-    )
+    model = models.resnet18(weights=None)
+    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    model.fc = nn.Linear(model.fc.in_features, 2)
 
     return model
 
@@ -90,34 +63,20 @@ def build_model():
 # ============================================================
 
 class GradCAM:
-
     def __init__(self, model, target_layer):
-
         self.model = model
         self.target_layer = target_layer
-
         self.gradients = None
         self.activations = None
-
         self.register_hooks()
 
     def register_hooks(self):
-
         def forward_hook(module, input, output):
-
             self.activations = output
-
         def backward_hook(module, grad_input, grad_output):
-
             self.gradients = grad_output[0]
-
-        self.target_layer.register_forward_hook(
-            forward_hook
-        )
-
-        self.target_layer.register_full_backward_hook(
-            backward_hook
-        )
+        self.target_layer.register_forward_hook(forward_hook)
+        self.target_layer.register_full_backward_hook(backward_hook)
 
     def generate_cam(self, input_tensor, class_idx=None):
 
@@ -183,7 +142,7 @@ model.eval()
 # TARGET LAYER
 # ============================================================
 
-target_layer = model.features[-1]
+target_layer = model.layer4
 
 gradcam = GradCAM(
     model,

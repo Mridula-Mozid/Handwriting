@@ -84,9 +84,9 @@ SEED = 42
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-FEATURE_DIR = PROJECT_ROOT / "extracted_features"
+FEATURE_DIR = PROJECT_ROOT / "handcrafted_features_classical_ml"
 
-RESULTS_DIR = PROJECT_ROOT / "ml_results"
+RESULTS_DIR = PROJECT_ROOT / "classical_ml_results"
 
 RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -98,45 +98,14 @@ print("\n================================================")
 print("LOADING FEATURES")
 print("================================================")
 
-features = np.load(
-    FEATURE_DIR / "features.npy"
-)
-
-labels = np.load(
-    FEATURE_DIR / "labels.npy"
-)
-
-patient_ids = np.load(
-    FEATURE_DIR / "patient_ids.npy"
-)
+features = np.load(FEATURE_DIR / "handcrafted_features.npy")
+labels = np.load(FEATURE_DIR / "class_labels.npy")
+patient_ids = np.load(FEATURE_DIR / "patient_identifiers.npy")
 
 print(f"\nFeature Shape: {features.shape}")
 
-# =========================================================================
-# PCA COMPONENT SAFETY
-# =========================================================================
-
-"""
-Very important.
-
-PCA components must NEVER exceed:
-- number of samples
-- number of features
-
-Otherwise:
-- instability
-- overfitting
-- numerical issues
-"""
-
-safe_pca_components = min(
-
-    64,
-    features.shape[0] - 1,
-    features.shape[1]
-)
-
-print(f"\nUsing PCA Components: {safe_pca_components}")
+safe_pca_components = min(64, features.shape[0] - 1, features.shape[1])
+print(f"Using PCA Components: {safe_pca_components}")
 
 # =========================================================================
 # CROSS VALIDATION
@@ -160,33 +129,9 @@ models = {
     # =====================================================================
 
     "SVM": Pipeline([
-
-        (
-            'scaler',
-            StandardScaler()
-        ),
-
-        (
-            'pca',
-            PCA(
-                n_components=safe_pca_components,
-                random_state=SEED
-            )
-        ),
-
-        (
-            'clf',
-            SVC(
-
-                kernel='rbf',
-
-                probability=True,
-
-                class_weight='balanced',
-
-                random_state=SEED
-            )
-        )
+        ('scaler', StandardScaler()),
+        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
+        ('clf', SVC(kernel='rbf', probability=True, class_weight='balanced', random_state=SEED))
     ]),
 
     # =====================================================================
@@ -194,28 +139,8 @@ models = {
     # =====================================================================
 
     "RandomForest": Pipeline([
-
-        (
-            'pca',
-            PCA(
-                n_components=safe_pca_components,
-                random_state=SEED
-            )
-        ),
-
-        (
-            'clf',
-            RandomForestClassifier(
-
-                n_estimators=300,
-
-                max_depth=10,
-
-                class_weight='balanced',
-
-                random_state=SEED
-            )
-        )
+        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
+        ('clf', RandomForestClassifier(n_estimators=300, max_depth=10, class_weight='balanced', random_state=SEED))
     ]),
 
     # =====================================================================
@@ -223,34 +148,8 @@ models = {
     # =====================================================================
 
     "XGBoost": Pipeline([
-
-        (
-            'pca',
-            PCA(
-                n_components=safe_pca_components,
-                random_state=SEED
-            )
-        ),
-
-        (
-            'clf',
-            XGBClassifier(
-
-                n_estimators=200,
-
-                learning_rate=0.03,
-
-                max_depth=4,
-
-                subsample=0.8,
-
-                colsample_bytree=0.8,
-
-                eval_metric='logloss',
-
-                random_state=SEED
-            )
-        )
+        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
+        ('clf', XGBClassifier(n_estimators=200, learning_rate=0.03, max_depth=4, subsample=0.8, colsample_bytree=0.8, eval_metric='logloss', random_state=SEED))
     ])
 }
 
