@@ -15,6 +15,7 @@ Key Improvements:
 
 import os
 import copy
+import json
 import random
 import warnings
 import numpy as np
@@ -84,10 +85,25 @@ MODEL_SAVE_DIR = PROJECT_ROOT / "trained_models_checkpoints" / (args.dataset if 
 
 RESULTS_DIR = PROJECT_ROOT / "deep_learning_results" / (args.dataset if args.dataset else "default")
 
+STANDARD_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "handwriting"
+STANDARD_DATASET_ROOT = STANDARD_OUTPUT_ROOT / (args.dataset if args.dataset else "default")
+STANDARD_PREDICTIONS_DIR = STANDARD_DATASET_ROOT / "predictions"
+STANDARD_EMBEDDINGS_DIR = STANDARD_DATASET_ROOT / "embeddings"
+STANDARD_GRADCAM_DIR = STANDARD_DATASET_ROOT / "gradcam"
+STANDARD_METRICS_DIR = STANDARD_DATASET_ROOT / "metrics"
+STANDARD_LOGS_DIR = STANDARD_DATASET_ROOT / "logs"
+STANDARD_FOLDS_DIR = STANDARD_DATASET_ROOT / "folds"
+
 DATASET_TAG = args.dataset if args.dataset else "default"
 
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(STANDARD_PREDICTIONS_DIR, exist_ok=True)
+os.makedirs(STANDARD_EMBEDDINGS_DIR, exist_ok=True)
+os.makedirs(STANDARD_GRADCAM_DIR, exist_ok=True)
+os.makedirs(STANDARD_METRICS_DIR, exist_ok=True)
+os.makedirs(STANDARD_LOGS_DIR, exist_ok=True)
+os.makedirs(STANDARD_FOLDS_DIR, exist_ok=True)
 
 # =========================================================================
 # CONFIG
@@ -124,6 +140,13 @@ metadata_df["label"] = metadata_df["class"].map({
     "parkinson": 1
 })
 
+if "master_patient_id" not in metadata_df.columns:
+    metadata_df["master_patient_id"] = metadata_df["patient_id"]
+else:
+    metadata_df["master_patient_id"] = metadata_df["master_patient_id"].fillna(
+        metadata_df["patient_id"]
+    )
+
 if USE_BINARY_IMAGES:
     metadata_df["image_path"] = metadata_df["binary_path"]
 else:
@@ -155,6 +178,10 @@ class HandwritingDataset(Dataset):
 
         patient_id = row["patient_id"]
 
+        master_patient_id = row["master_patient_id"] if "master_patient_id" in row else patient_id
+
+        image_name = row["filename"] if "filename" in row else Path(image_path).name
+
         try:
 
             image = Image.open(image_path).convert("L")
@@ -170,7 +197,14 @@ class HandwritingDataset(Dataset):
 
             image = self.transform(image)
 
-        return image, label, patient_id
+        metadata = {
+            "patient_id": patient_id,
+            "master_patient_id": master_patient_id,
+            "image_name": image_name,
+            "image_path": image_path,
+        }
+
+        return image, label, metadata
 
 # =========================================================================
 # TRANSFORMS
@@ -203,6 +237,110 @@ test_transform = transforms.Compose([
         std=[0.5]
     )
 ])
+
+# =========================================================================
+# EXPORT / ANALYSIS HELPERS
+# =========================================================================
+
+DEFAULT_THRESHOLD = 0.5
+
+
+def safe_roc_auc_score(true_labels, probabilities):
+
+    try:
+        if len(np.unique(true_labels)) < 2:
+            return np.nan
+        return roc_auc_score(true_labels, probabilities)
+    except ValueError:
+        return np.nan
+
+
+def forward_penultimate(model, inputs):
+
+    features = model.conv1(inputs)
+    features = model.bn1(features)
+    features = model.relu(features)
+    features = model.maxpool(features)
+
+    features = model.layer1(features)
+    features = model.layer2(features)
+    features = model.layer3(features)
+    features = model.layer4(features)
+
+    features = model.avgpool(features)
+    features = torch.flatten(features, 1)
+
+    return features
+
+
+def label_distribution_dict(labels):
+
+    healthy_count = int(np.sum(np.array(labels) == 0))
+    pd_count = int(np.sum(np.array(labels) == 1))
+
+    return {
+        "healthy_count": healthy_count,
+        "pd_count": pd_count,
+        "patient_count": int(len(labels)),
+    }
+
+
+def serialize_ids(values):
+
+    return ";".join(map(str, values))
+
+
+def batch_metadata_rows(batch_metadata):
+
+    batch_size = len(batch_metadata["patient_id"])
+
+    rows = []
+
+    for index in range(batch_size):
+
+        row = {}
+
+        for key, values in batch_metadata.items():
+
+            if isinstance(values, (list, tuple)):
+                row[key] = values[index]
+            elif hasattr(values, "tolist"):
+                converted = values.tolist()
+                row[key] = converted[index] if isinstance(converted, list) else converted
+            else:
+                row[key] = values
+
+        rows.append(row)
+
+    return rows
+
+
+def export_run_metadata():
+
+    run_metadata = {
+        "seed": SEED,
+        "dataset": DATASET_TAG,
+        "metadata_path": str(METADATA_PATH),
+        "preprocessed_root": str(DATA_ROOT),
+        "model_type": "resnet18",
+        "modality": "handwriting",
+        "threshold_used": DEFAULT_THRESHOLD,
+        "use_binary_images": USE_BINARY_IMAGES,
+        "image_size": IMG_SIZE,
+        "batch_size": BATCH_SIZE,
+        "epochs": EPOCHS,
+        "learning_rate": LEARNING_RATE,
+        "patience": PATIENCE,
+        "group_split": "StratifiedGroupKFold",
+        "n_splits": 5,
+    }
+
+    run_metadata_path = STANDARD_LOGS_DIR / "run_metadata.json"
+
+    with open(run_metadata_path, "w", encoding="utf-8") as handle:
+        json.dump(run_metadata, handle, indent=2)
+
+    return run_metadata_path
 
 # =========================================================================
 # MODEL
@@ -485,15 +623,29 @@ def evaluate_model(model, test_loader):
 
     patient_ids = []
 
+    master_patient_ids = []
+
+    image_names = []
+
+    image_paths = []
+
+    embedding_vectors = []
+
+    prediction_rows = []
+
+    embedding_rows = []
+
     with torch.no_grad():
 
-        for images, labels, pids in test_loader:
+        for images, labels, metadata in test_loader:
 
             images = images.to(DEVICE)
 
             labels = labels.to(DEVICE)
 
             outputs = model(images)
+
+            embeddings = forward_penultimate(model, images)
 
             probabilities = torch.softmax(
                 outputs,
@@ -514,7 +666,71 @@ def evaluate_model(model, test_loader):
                 labels.cpu().numpy()
             )
 
-            patient_ids.extend(pids)
+            batch_rows = batch_metadata_rows(metadata)
+
+            for row_index, sample_meta in enumerate(batch_rows):
+
+                patient_id = sample_meta.get("patient_id")
+
+                master_patient_id = sample_meta.get("master_patient_id", patient_id)
+
+                image_name = sample_meta.get("image_name")
+
+                image_path = sample_meta.get("image_path")
+
+                patient_ids.append(patient_id)
+
+                master_patient_ids.append(master_patient_id)
+
+                image_names.append(image_name)
+
+                image_paths.append(image_path)
+
+                probability_pd = float(probabilities[row_index, 1].cpu().item())
+
+                predicted_class = int(probability_pd >= DEFAULT_THRESHOLD)
+
+                prediction_rows.append({
+
+                    "patient_id": patient_id,
+
+                    "master_patient_id": master_patient_id,
+
+                    "true_label": int(labels[row_index].cpu().item()),
+
+                    "predicted_probability": probability_pd,
+
+                    "predicted_class": predicted_class,
+
+                    "threshold_used": DEFAULT_THRESHOLD,
+
+                    "modality": "handwriting",
+
+                    "dataset_name": DATASET_TAG,
+
+                    "image_name": image_name,
+
+                    "image_path": image_path,
+
+                })
+
+                embedding_vector = embeddings[row_index].cpu().numpy().astype(float)
+
+                embedding_vectors.append(embedding_vector)
+
+                embedding_rows.append({
+
+                    "patient_id": patient_id,
+
+                    "master_patient_id": master_patient_id,
+
+                    "true_label": int(labels[row_index].cpu().item()),
+
+                    "fold": None,
+
+                    "embedding_vector": json.dumps(embedding_vector.tolist()),
+
+                })
 
     # ================================================================
     # METRICS
@@ -543,17 +759,15 @@ def evaluate_model(model, test_loader):
         zero_division=0
     )
 
-    try:
-        auc = roc_auc_score(
-            true_labels,
-            probs
-        )
-    except ValueError:
-        auc = np.nan
+    auc = safe_roc_auc_score(
+        true_labels,
+        probs
+    )
 
     cm = confusion_matrix(
         true_labels,
-        preds
+        preds,
+        labels=[0, 1]
     )
 
     tn, fp, fn, tp = cm.ravel()
@@ -576,14 +790,137 @@ def evaluate_model(model, test_loader):
 
         "patient_id": patient_ids,
 
+        "master_patient_id": master_patient_ids,
+
+        "fold": None,
+
         "true_label": true_labels,
+
+        "predicted_probability": probs,
+
+        "predicted_class": preds,
+
+        "threshold_used": DEFAULT_THRESHOLD,
+
+        "modality": "handwriting",
+
+        "dataset_name": DATASET_TAG,
+
+        "image_name": image_names,
+
+        "image_path": image_paths,
 
         "predicted_label": preds,
 
         "probability_PD": probs
     })
 
-    return metrics, cm, prediction_df
+    embedding_df = pd.DataFrame(embedding_rows)
+
+    embedding_matrix = np.vstack(embedding_vectors) if embedding_vectors else np.empty((0, 0))
+
+    return metrics, cm, prediction_df, embedding_df, embedding_matrix
+
+
+def export_fold_trace(fold_trace_rows):
+
+    fold_trace_df = pd.DataFrame(fold_trace_rows)
+
+    fold_trace_path = STANDARD_FOLDS_DIR / "fold_split_trace.csv"
+
+    fold_trace_df.to_csv(fold_trace_path, index=False)
+
+    return fold_trace_path
+
+
+def export_standardized_fold_outputs(
+    fold_num,
+    train_df,
+    test_df,
+    metrics,
+    cm,
+    prediction_df,
+    embedding_df,
+    embedding_matrix,
+):
+
+    dataset_predictions_dir = STANDARD_PREDICTIONS_DIR
+    dataset_embeddings_dir = STANDARD_EMBEDDINGS_DIR
+    dataset_metrics_dir = STANDARD_METRICS_DIR
+
+    prediction_df = prediction_df.copy()
+    embedding_df = embedding_df.copy()
+
+    prediction_df["fold"] = fold_num
+    embedding_df["fold"] = fold_num
+
+    prediction_path = dataset_predictions_dir / f"fold_{fold_num}_oof_predictions.csv"
+    embedding_csv_path = dataset_embeddings_dir / f"fold_{fold_num}_embeddings.csv"
+    embedding_npy_path = dataset_embeddings_dir / f"fold_{fold_num}_embeddings.npy"
+
+    prediction_df.to_csv(prediction_path, index=False)
+    embedding_df.to_csv(embedding_csv_path, index=False)
+    np.save(embedding_npy_path, embedding_matrix)
+
+    train_labels = train_df["label"].tolist()
+    test_labels = test_df["label"].tolist()
+
+    fold_metrics_row = {
+        "dataset_name": DATASET_TAG,
+        "modality": "handwriting",
+        "fold": fold_num,
+        "threshold_used": DEFAULT_THRESHOLD,
+        "accuracy": metrics["accuracy"],
+        "precision": metrics["precision"],
+        "sensitivity": metrics["sensitivity"],
+        "specificity": metrics["specificity"],
+        "f1_score": metrics["f1_score"],
+        "roc_auc": metrics["roc_auc"],
+        "tn": int(cm[0, 0]),
+        "fp": int(cm[0, 1]),
+        "fn": int(cm[1, 0]),
+        "tp": int(cm[1, 1]),
+        "train_healthy_count": int(np.sum(np.array(train_labels) == 0)),
+        "train_pd_count": int(np.sum(np.array(train_labels) == 1)),
+        "train_patient_count": int(len(train_df)),
+        "val_healthy_count": int(np.sum(np.array(test_labels) == 0)),
+        "val_pd_count": int(np.sum(np.array(test_labels) == 1)),
+        "val_patient_count": int(len(test_df)),
+    }
+
+    fold_metrics_path = dataset_metrics_dir / f"fold_{fold_num}_metrics.csv"
+    pd.DataFrame([fold_metrics_row]).to_csv(fold_metrics_path, index=False)
+
+    return {
+        "prediction_path": prediction_path,
+        "embedding_csv_path": embedding_csv_path,
+        "embedding_npy_path": embedding_npy_path,
+        "fold_metrics_path": fold_metrics_path,
+        "fold_metrics_row": fold_metrics_row,
+    }
+
+
+def export_aggregate_metrics(metrics_df):
+
+    aggregate_rows = []
+
+    for column in metrics_df.columns:
+        if not pd.api.types.is_numeric_dtype(metrics_df[column]):
+            continue
+
+        values = metrics_df[column].dropna().to_numpy(dtype=float)
+
+        aggregate_rows.append({
+            "metric": column,
+            "mean": float(np.mean(values)) if len(values) else np.nan,
+            "std": float(np.std(values, ddof=1)) if len(values) > 1 else np.nan,
+            "variance": float(np.var(values, ddof=1)) if len(values) > 1 else np.nan,
+        })
+
+    aggregate_df = pd.DataFrame(aggregate_rows)
+    aggregate_path = STANDARD_METRICS_DIR / "aggregate_metrics.csv"
+    aggregate_df.to_csv(aggregate_path, index=False)
+    return aggregate_path
 
 # =========================================================================
 # CROSS VALIDATION
@@ -599,6 +936,8 @@ def run_cross_validation():
     print(f"Model Output Dir: {MODEL_SAVE_DIR}")
     print(f"Results Output Dir: {RESULTS_DIR}\n")
 
+    export_run_metadata()
+
     sgkf = StratifiedGroupKFold(
         n_splits=5,
         shuffle=True,
@@ -612,6 +951,10 @@ def run_cross_validation():
     groups = metadata_df["patient_id"]
 
     all_metrics = []
+
+    standardized_fold_metrics = []
+
+    fold_trace_rows = []
 
     fold_num = 1
 
@@ -638,6 +981,25 @@ def run_cross_validation():
 
         print("\nTest label distribution:")
         print(test_df["label"].value_counts())
+
+        train_patient_ids = sorted(train_df["patient_id"].astype(str).unique().tolist())
+        test_patient_ids = sorted(test_df["patient_id"].astype(str).unique().tolist())
+
+        fold_trace_rows.append({
+            "dataset_name": DATASET_TAG,
+            "modality": "handwriting",
+            "fold": fold_num,
+            "train_patient_ids": serialize_ids(train_patient_ids),
+            "validation_patient_ids": serialize_ids(test_patient_ids),
+            "train_patient_count": int(train_df["patient_id"].nunique()),
+            "validation_patient_count": int(test_df["patient_id"].nunique()),
+            "train_sample_count": int(len(train_df)),
+            "validation_sample_count": int(len(test_df)),
+            "train_healthy_count": int((train_df["label"] == 0).sum()),
+            "train_pd_count": int((train_df["label"] == 1).sum()),
+            "validation_healthy_count": int((test_df["label"] == 0).sum()),
+            "validation_pd_count": int((test_df["label"] == 1).sum()),
+        })
 
         # ============================================================
         # DATASETS
@@ -690,7 +1052,7 @@ def run_cross_validation():
         # EVALUATE
         # ============================================================
 
-        metrics, cm, prediction_df = evaluate_model(
+        metrics, cm, prediction_df, embedding_df, embedding_matrix = evaluate_model(
             model,
             test_loader
         )
@@ -702,6 +1064,19 @@ def run_cross_validation():
         for k, v in metrics.items():
 
             print(f"[{DATASET_TAG}][Fold {fold_num}] {k}: {v:.4f}")
+
+        standardized_export = export_standardized_fold_outputs(
+            fold_num=fold_num,
+            train_df=train_df,
+            test_df=test_df,
+            metrics=metrics,
+            cm=cm,
+            prediction_df=prediction_df,
+            embedding_df=embedding_df,
+            embedding_matrix=embedding_matrix,
+        )
+
+        standardized_fold_metrics.append(standardized_export["fold_metrics_row"])
 
         # ============================================================
         # SAVE PREDICTIONS
@@ -769,6 +1144,8 @@ def run_cross_validation():
 
         fold_num += 1
 
+    export_fold_trace(fold_trace_rows)
+
     # =========================================================================
     # FINAL RESULTS
     # =========================================================================
@@ -817,9 +1194,27 @@ def run_cross_validation():
         index=False
     )
 
+    standardized_fold_metrics_df = pd.DataFrame(standardized_fold_metrics)
+
+    standardized_fold_metrics_path = STANDARD_METRICS_DIR / "fold_metrics.csv"
+
+    standardized_fold_metrics_df.to_csv(
+        standardized_fold_metrics_path,
+        index=False
+    )
+
+    export_aggregate_metrics(
+        standardized_fold_metrics_df.drop(columns=["fold"], errors="ignore")
+    )
+
     print(
         f"\nSaved final results:\n"
         f"{final_results_path}"
+    )
+
+    print(
+        f"Standardized exports saved under:\n"
+        f"{STANDARD_DATASET_ROOT}"
     )
 
 # =========================================================================

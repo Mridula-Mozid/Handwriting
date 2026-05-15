@@ -1,0 +1,2 @@
+dataset_name,modality,fold,threshold_used,accuracy,precision,sensitivity,specificity,f1_score,roc_auc,tn,fp,fn,tp,train_healthy_count,train_pd_count,train_patient_count,val_healthy_count,val_pd_count,val_patient_count
+Public_Dataset,handwriting,4,0.5,0.5555555555555556,0.5333333333333333,0.8888888888888888,0.2222222219753086,0.6666666666666666,0.888888888888889,2,7,1,8,42,42,84,9,9,18

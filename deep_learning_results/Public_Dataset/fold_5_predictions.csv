@@ -1,22 +1,22 @@
-patient_id,true_label,predicted_label,probability_PD
-HP005,0,1,0.88574255
-HP005,0,1,0.87751037
-HP005,0,1,0.9522437
-HP008,0,1,0.5571843
-HP008,0,1,0.59465694
-HP008,0,0,0.00742664
-HP013,0,0,0.44173503
-HP013,0,0,0.22060479
-HP013,0,0,0.24062307
-PP004,1,1,0.95667636
-PP004,1,1,0.9835993
-PP004,1,1,0.8908643
-PP008,1,1,0.9762429
-PP008,1,1,0.92222047
-PP008,1,1,0.9704485
-PP013,1,1,0.9923832
-PP013,1,1,0.9999174
-PP013,1,1,0.9999211
-PP015,1,1,0.9997141
-PP015,1,1,0.999729
-PP015,1,1,0.99997735
+patient_id,master_patient_id,fold,true_label,predicted_probability,predicted_class,threshold_used,modality,dataset_name,image_name,image_path,predicted_label,probability_PD
+HP005,HP005,,0,0.88574255,1,0.5,handwriting,Public_Dataset,HP005_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP005_hand_spiral_01.png,1,0.88574255
+HP005,HP005,,0,0.87751037,1,0.5,handwriting,Public_Dataset,HP005_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP005_hand_spiral_02.png,1,0.87751037
+HP005,HP005,,0,0.9522437,1,0.5,handwriting,Public_Dataset,HP005_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP005_hand_spiral_03.png,1,0.9522437
+HP008,HP008,,0,0.5571843,1,0.5,handwriting,Public_Dataset,HP008_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP008_hand_spiral_01.png,1,0.5571843
+HP008,HP008,,0,0.59465694,1,0.5,handwriting,Public_Dataset,HP008_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP008_hand_spiral_02.png,1,0.59465694
+HP008,HP008,,0,0.00742664,0,0.5,handwriting,Public_Dataset,HP008_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP008_hand_spiral_03.png,0,0.00742664
+HP013,HP013,,0,0.44173503,0,0.5,handwriting,Public_Dataset,HP013_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP013_hand_spiral_01.png,0,0.44173503
+HP013,HP013,,0,0.22060479,0,0.5,handwriting,Public_Dataset,HP013_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP013_hand_spiral_02.png,0,0.22060479
+HP013,HP013,,0,0.24062307,0,0.5,handwriting,Public_Dataset,HP013_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\healthy\HP013_hand_spiral_03.png,0,0.24062307
+PP004,PP004,,1,0.95667636,1,0.5,handwriting,Public_Dataset,PP004_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP004_hand_spiral_01.png,1,0.95667636
+PP004,PP004,,1,0.9835993,1,0.5,handwriting,Public_Dataset,PP004_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP004_hand_spiral_02.png,1,0.9835993
+PP004,PP004,,1,0.8908643,1,0.5,handwriting,Public_Dataset,PP004_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP004_hand_spiral_03.png,1,0.8908643
+PP008,PP008,,1,0.9762429,1,0.5,handwriting,Public_Dataset,PP008_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP008_hand_spiral_01.png,1,0.9762429
+PP008,PP008,,1,0.92222047,1,0.5,handwriting,Public_Dataset,PP008_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP008_hand_spiral_02.png,1,0.92222047
+PP008,PP008,,1,0.9704485,1,0.5,handwriting,Public_Dataset,PP008_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP008_hand_spiral_03.png,1,0.9704485
+PP013,PP013,,1,0.9923832,1,0.5,handwriting,Public_Dataset,PP013_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP013_hand_spiral_01.png,1,0.9923832
+PP013,PP013,,1,0.9999174,1,0.5,handwriting,Public_Dataset,PP013_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP013_hand_spiral_02.png,1,0.9999174
+PP013,PP013,,1,0.9999211,1,0.5,handwriting,Public_Dataset,PP013_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP013_hand_spiral_03.png,1,0.9999211
+PP015,PP015,,1,0.9997141,1,0.5,handwriting,Public_Dataset,PP015_hand_spiral_01.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP015_hand_spiral_01.png,1,0.9997141
+PP015,PP015,,1,0.999729,1,0.5,handwriting,Public_Dataset,PP015_hand_spiral_02.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP015_hand_spiral_02.png,1,0.999729
+PP015,PP015,,1,0.99997735,1,0.5,handwriting,Public_Dataset,PP015_hand_spiral_03.png,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset\grayscale\parkinson\PP015_hand_spiral_03.png,1,0.99997735

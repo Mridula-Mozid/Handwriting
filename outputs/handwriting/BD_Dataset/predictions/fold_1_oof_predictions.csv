@@ -1,0 +1,9 @@
+patient_id,master_patient_id,fold,true_label,predicted_probability,predicted_class,threshold_used,modality,dataset_name,image_name,image_path,predicted_label,probability_PD
+BHP001,BHP001,1,0,0.42702195,0,0.5,handwriting,BD_Dataset,BHP001_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP001_hand_spiral_01.jpg,0,0.42702195
+BHP007,BHP007,1,0,0.37869635,0,0.5,handwriting,BD_Dataset,BHP007_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP007_hand_spiral_01.jpg,0,0.37869635
+BHP012,BHP012,1,0,0.43659422,0,0.5,handwriting,BD_Dataset,BHP012_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP012_hand_spiral_01.jpg,0,0.43659422
+BHP017,BHP017,1,0,0.3342642,0,0.5,handwriting,BD_Dataset,BHP017_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP017_hand_spiral_01.jpg,0,0.3342642
+BPP003,BPP003,1,1,0.47653955,0,0.5,handwriting,BD_Dataset,BPP003_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP003_hand_spiral_01.jpg,0,0.47653955
+BPP008,BPP008,1,1,0.4633926,0,0.5,handwriting,BD_Dataset,BPP008_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP008_hand_spiral_01.jpg,0,0.4633926
+BPP013,BPP013,1,1,0.52113557,1,0.5,handwriting,BD_Dataset,BPP013_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP013_hand_spiral_01.jpg,1,0.52113557
+BPP018,BPP018,1,1,0.34160268,0,0.5,handwriting,BD_Dataset,BPP018_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP018_hand_spiral_01.jpg,0,0.34160268

@@ -1,8 +1,9 @@
-patient_id,true_label,predicted_label,probability_PD
-BHP003,0,1,0.5274039
-BHP007,0,1,0.63064533
-BHP011,0,0,0.31739792
-BPP003,1,0,0.35249713
-BPP008,1,1,0.76526666
-BPP014,1,0,0.44477472
-BPP017,1,1,0.6491045
+patient_id,master_patient_id,fold,true_label,predicted_probability,predicted_class,threshold_used,modality,dataset_name,image_name,image_path,predicted_label,probability_PD
+BHP003,BHP003,,0,0.7065738,1,0.5,handwriting,BD_Dataset,BHP003_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP003_hand_spiral_01.jpg,1,0.7065738
+BHP006,BHP006,,0,0.63836765,1,0.5,handwriting,BD_Dataset,BHP006_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP006_hand_spiral_01.jpg,1,0.63836765
+BHP013,BHP013,,0,0.70299846,1,0.5,handwriting,BD_Dataset,BHP013_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP013_hand_spiral_01.jpg,1,0.70299846
+BPP001,BPP001,,1,0.7698474,1,0.5,handwriting,BD_Dataset,BPP001_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP001_hand_spiral_01.jpg,1,0.7698474
+BPP006,BPP006,,1,0.942974,1,0.5,handwriting,BD_Dataset,BPP006_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP006_hand_spiral_01.jpg,1,0.942974
+BPP010,BPP010,,1,0.9562205,1,0.5,handwriting,BD_Dataset,BPP010_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP010_hand_spiral_01.jpg,1,0.9562205
+BPP015,BPP015,,1,0.73818564,1,0.5,handwriting,BD_Dataset,BPP015_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP015_hand_spiral_01.jpg,1,0.73818564
+BPP019,BPP019,,1,0.84540004,1,0.5,handwriting,BD_Dataset,BPP019_hand_spiral_01.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP019_hand_spiral_01.jpg,1,0.84540004

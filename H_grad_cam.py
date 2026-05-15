@@ -1,7 +1,10 @@
+import os
 import cv2
 import random
+import json
 import torch
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from pathlib import Path
@@ -9,6 +12,7 @@ from PIL import Image
 
 import torch.nn as nn
 from torchvision import transforms, models
+from sklearn.model_selection import StratifiedGroupKFold
 
 # ============================================================
 # CONFIG
@@ -29,21 +33,42 @@ parser.add_argument('--dataset', type=str, default=None, help='Dataset tag (e.g.
 parser.add_argument('--model-fold', type=int, default=1, help='Which fold model to load (default: 1)')
 args = parser.parse_args()
 
-MODEL_PATH = PROJECT_ROOT / "trained_models_checkpoints" / (args.dataset if args.dataset else "default") / f"resnet18_fold_{args.model_fold}.pth"
+DATASET_TAG = args.dataset if args.dataset else "default"
+
+MODEL_PATH = PROJECT_ROOT / "trained_models_checkpoints" / DATASET_TAG / f"resnet18_fold_{args.model_fold}.pth"
 
 preproc_root = PROJECT_ROOT / "preprocessed_images"
 if args.dataset:
     preproc_root = preproc_root / args.dataset
+
+METADATA_PATH = preproc_root / "metadata.csv"
+
+metadata_df = pd.read_csv(METADATA_PATH)
+
+metadata_df["label"] = metadata_df["class"].map({
+    "healthy": 0,
+    "parkinson": 1
+})
+
+metadata_df["image_path"] = metadata_df["gray_path"]
+
+if "master_patient_id" not in metadata_df.columns:
+    metadata_df["master_patient_id"] = metadata_df["patient_id"]
+else:
+    metadata_df["master_patient_id"] = metadata_df["master_patient_id"].fillna(
+        metadata_df["patient_id"]
+    )
+
+STANDARD_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "handwriting" / "gradcam" / DATASET_TAG / f"fold_{args.model_fold}"
+STANDARD_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 CLASS_FOLDERS = {
     "parkinson": preproc_root / "grayscale" / "parkinson",
     "healthy": preproc_root / "grayscale" / "healthy",
 }
 
-OUTPUT_DIR = PROJECT_ROOT / "model_interpretability_visualizations" / (args.dataset if args.dataset else "default")
+OUTPUT_DIR = PROJECT_ROOT / "model_interpretability_visualizations" / DATASET_TAG
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-DATASET_TAG = args.dataset if args.dataset else "default"
 
 print("\n================================================")
 print("STARTING GRAD-CAM GENERATION")
@@ -51,6 +76,7 @@ print("================================================")
 print(f"Dataset: {DATASET_TAG}")
 print(f"Model Path: {MODEL_PATH}")
 print(f"Output Directory: {OUTPUT_DIR}")
+print(f"Standardized Output Directory: {STANDARD_OUTPUT_ROOT}")
 
 # ============================================================
 # TRANSFORM
@@ -169,53 +195,114 @@ gradcam = GradCAM(
 )
 
 # ============================================================
-# LOAD IMAGES
+# VALIDATION SPLIT / SELECTION
 # ============================================================
 
-def get_random_images(folder, count):
-    supported_exts = {".png", ".jpg", ".jpeg"}
-
-    image_paths = sorted(
-        path for path in folder.iterdir()
-        if path.is_file() and path.suffix.lower() in supported_exts
-    )
-
-    if len(image_paths) == 0:
-
-        raise ValueError(
-            f"No supported images found in {folder}."
-        )
-
-    sample_count = min(count, len(image_paths))
-
-    return random.sample(image_paths, sample_count)
+def safe_component(value):
+    return str(value).replace(os.sep, "_").replace(" ", "_")
 
 
-def generate_gradcam(image_path, class_name):
+def resolve_validation_dataframe():
 
-    original = cv2.imread(
-        str(image_path),
-        cv2.IMREAD_GRAYSCALE
-    )
+    trace_path = PROJECT_ROOT / "outputs" / "handwriting" / DATASET_TAG / "folds" / "fold_split_trace.csv"
+
+    if trace_path.exists():
+
+        trace_df = pd.read_csv(trace_path)
+        fold_row = trace_df.loc[trace_df["fold"] == args.model_fold]
+
+        if not fold_row.empty:
+            validation_ids = str(fold_row.iloc[0]["validation_patient_ids"]).split(";")
+            return metadata_df[metadata_df["patient_id"].astype(str).isin(validation_ids)].copy()
+
+    sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+    X = metadata_df.index.values
+    y = metadata_df["label"].values
+    groups = metadata_df["patient_id"].values
+
+    for fold_index, (_, test_idx) in enumerate(sgkf.split(X, y, groups), start=1):
+        if fold_index == args.model_fold:
+            return metadata_df.iloc[test_idx].copy()
+
+    raise ValueError(f"Could not resolve validation split for fold {args.model_fold}.")
+
+
+def predict_row(row):
+
+    original = cv2.imread(str(row["image_path"]), cv2.IMREAD_GRAYSCALE)
 
     if original is None:
+        raise FileNotFoundError(f"Could not read image: {row['image_path']}")
 
-        raise FileNotFoundError(
-            f"Could not read image: {image_path}"
-        )
+    original_resized = cv2.resize(original, (IMG_SIZE, IMG_SIZE))
+    pil_image = Image.fromarray(original_resized)
+    input_tensor = transform(pil_image).unsqueeze(0).to(DEVICE)
 
-    original_resized = cv2.resize(
-        original,
-        (IMG_SIZE, IMG_SIZE)
-    )
+    with torch.no_grad():
+        logits = model(input_tensor)
+        probabilities = torch.softmax(logits, dim=1)
 
-    pil_image = Image.fromarray(
-        original_resized
-    )
+    probability_pd = float(probabilities[:, 1].item())
+    predicted_class = int(probability_pd >= 0.5)
 
-    input_tensor = transform(
-        pil_image
-    ).unsqueeze(0).to(DEVICE)
+    return {
+        "source_index": int(row.name),
+        "patient_id": row["patient_id"],
+        "master_patient_id": row["master_patient_id"],
+        "fold": args.model_fold,
+        "true_label": int(row["label"]),
+        "predicted_probability": probability_pd,
+        "predicted_class": predicted_class,
+        "threshold_used": 0.5,
+        "modality": "handwriting",
+        "dataset_name": DATASET_TAG,
+        "image_name": row["filename"],
+        "image_path": row["image_path"],
+        "original_resized": original_resized,
+        "input_tensor": input_tensor,
+    }
+
+
+def select_examples(validation_predictions_df):
+
+    examples = []
+
+    correct_df = validation_predictions_df.loc[
+        validation_predictions_df["predicted_class"] == validation_predictions_df["true_label"]
+    ]
+    incorrect_df = validation_predictions_df.loc[
+        validation_predictions_df["predicted_class"] != validation_predictions_df["true_label"]
+    ]
+
+    if not correct_df.empty:
+        healthy_correct = correct_df.loc[correct_df["true_label"] == 0].sort_values("predicted_probability")
+        if not healthy_correct.empty:
+            examples.append(("best_healthy_correct", healthy_correct.iloc[0]))
+
+        pd_correct = correct_df.loc[correct_df["true_label"] == 1].sort_values("predicted_probability", ascending=False)
+        if not pd_correct.empty:
+            examples.append(("best_parkinson_correct", pd_correct.iloc[0]))
+
+    if not incorrect_df.empty:
+        healthy_wrong = incorrect_df.loc[incorrect_df["true_label"] == 0].sort_values("predicted_probability", ascending=False)
+        if not healthy_wrong.empty:
+            examples.append(("worst_healthy_wrong", healthy_wrong.iloc[0]))
+
+        pd_wrong = incorrect_df.loc[incorrect_df["true_label"] == 1].sort_values("predicted_probability")
+        if not pd_wrong.empty:
+            examples.append(("worst_parkinson_wrong", pd_wrong.iloc[0]))
+
+    uncertain_df = validation_predictions_df.iloc[(validation_predictions_df["predicted_probability"] - 0.5).abs().argsort()]
+    if not uncertain_df.empty:
+        examples.append(("most_uncertain", uncertain_df.iloc[0]))
+
+    return examples
+
+
+def generate_gradcam_artifact(sample_row, example_role):
+
+    original_resized = sample_row["original_resized"]
+    input_tensor = sample_row["input_tensor"]
 
     cam = gradcam.generate_cam(input_tensor)
 
@@ -237,51 +324,92 @@ def generate_gradcam(image_path, class_name):
         0
     )
 
-    save_path = OUTPUT_DIR / f"{class_name}_{image_path.stem}_gradcam.png"
-
-    cv2.imwrite(
-        str(save_path),
-        overlay
+    base_name = (
+        f"fold_{args.model_fold}_{example_role}_"
+        f"{safe_component(sample_row['patient_id'])}_"
+        f"{safe_component(sample_row['image_name'])}_"
+        f"p{sample_row['predicted_probability']:.3f}"
     )
 
-    plt.figure(figsize=(12, 4))
+    legacy_save_path = OUTPUT_DIR / f"{base_name}_gradcam.png"
+    legacy_preview_path = OUTPUT_DIR / f"{base_name}_preview.png"
+    standardized_save_path = STANDARD_OUTPUT_ROOT / f"{base_name}_gradcam.png"
+    standardized_preview_path = STANDARD_OUTPUT_ROOT / f"{base_name}_preview.png"
 
-    plt.subplot(1, 3, 1)
-    plt.imshow(original_resized, cmap='gray')
-    plt.title(f"Original - {class_name}")
-    plt.axis("off")
+    for save_path in [legacy_save_path, standardized_save_path]:
+        cv2.imwrite(str(save_path), overlay)
 
-    plt.subplot(1, 3, 2)
-    plt.imshow(cam, cmap='jet')
-    plt.title("Grad-CAM")
-    plt.axis("off")
+    for preview_path in [legacy_preview_path, standardized_preview_path]:
+        plt.figure(figsize=(12, 4))
 
-    plt.subplot(1, 3, 3)
-    plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
-    plt.title("Overlay")
-    plt.axis("off")
+        plt.subplot(1, 3, 1)
+        plt.imshow(original_resized, cmap='gray')
+        plt.title(f"Original - {sample_row['dataset_name']}")
+        plt.axis("off")
 
-    plt.tight_layout()
+        plt.subplot(1, 3, 2)
+        plt.imshow(cam, cmap='jet')
+        plt.title("Grad-CAM")
+        plt.axis("off")
 
-    preview_path = OUTPUT_DIR / f"{class_name}_{image_path.stem}_preview.png"
+        plt.subplot(1, 3, 3)
+        plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+        plt.title("Overlay")
+        plt.axis("off")
 
-    plt.savefig(preview_path, bbox_inches="tight")
-    plt.close()
+        plt.tight_layout()
+        plt.savefig(preview_path, bbox_inches="tight")
+        plt.close()
 
-    print("\nSaved Grad-CAM result:")
-    print(save_path)
-    print("Saved preview:")
-    print(preview_path)
+    return {
+        "example_role": example_role,
+        "patient_id": sample_row["patient_id"],
+        "master_patient_id": sample_row["master_patient_id"],
+        "fold": args.model_fold,
+        "true_label": sample_row["true_label"],
+        "predicted_probability": sample_row["predicted_probability"],
+        "predicted_class": sample_row["predicted_class"],
+        "threshold_used": sample_row["threshold_used"],
+        "modality": "handwriting",
+        "dataset_name": DATASET_TAG,
+        "image_name": sample_row["image_name"],
+        "image_path": sample_row["image_path"],
+        "legacy_gradcam_path": str(legacy_save_path),
+        "legacy_preview_path": str(legacy_preview_path),
+        "standard_gradcam_path": str(standardized_save_path),
+        "standard_preview_path": str(standardized_preview_path),
+    }
 
 
-selected_images = [
-    ("parkinson", image_path)
-    for image_path in get_random_images(CLASS_FOLDERS["parkinson"], 3)
-] + [
-    ("healthy", image_path)
-    for image_path in get_random_images(CLASS_FOLDERS["healthy"], 3)
-]
+validation_df = resolve_validation_dataframe().copy()
+validation_prediction_records = []
 
-for class_name, image_path in selected_images:
+for _, row in validation_df.iterrows():
+    prediction_record = predict_row(row)
+    validation_prediction_records.append({
+        key: value for key, value in prediction_record.items() if key not in {"original_resized", "input_tensor"}
+    })
 
-    generate_gradcam(image_path, class_name)
+validation_predictions_df = pd.DataFrame(validation_prediction_records)
+validation_predictions_standard_path = STANDARD_OUTPUT_ROOT / "validation_predictions.csv"
+validation_predictions_legacy_path = OUTPUT_DIR / f"fold_{args.model_fold}_validation_predictions.csv"
+validation_predictions_df.to_csv(validation_predictions_standard_path, index=False)
+validation_predictions_df.to_csv(validation_predictions_legacy_path, index=False)
+
+selected_examples = select_examples(validation_predictions_df)
+gradcam_metadata_rows = []
+
+for example_role, sample_series in selected_examples:
+    sample_row = predict_row(validation_df.loc[sample_series["source_index"]])
+    gradcam_metadata_rows.append(
+        generate_gradcam_artifact(sample_row, example_role)
+    )
+
+gradcam_metadata_df = pd.DataFrame(gradcam_metadata_rows)
+gradcam_metadata_path = STANDARD_OUTPUT_ROOT / "gradcam_metadata.csv"
+gradcam_metadata_df.to_csv(gradcam_metadata_path, index=False)
+
+print("\nSaved validation predictions:")
+print(validation_predictions_standard_path)
+print("Saved Grad-CAM metadata:")
+print(gradcam_metadata_path)
