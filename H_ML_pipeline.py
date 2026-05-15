@@ -224,6 +224,12 @@ for model_name, model in models.items():
         y_train = labels[train_idx]
         y_test = labels[test_idx]
 
+        print("\nTrain label distribution:")
+        print(pd.Series(y_train).value_counts())
+
+        print("\nTest label distribution:")
+        print(pd.Series(y_test).value_counts())
+
         # -----------------------------------------------------------------
         # TRAIN
         # -----------------------------------------------------------------
@@ -268,10 +274,13 @@ for model_name, model in models.items():
             zero_division=0
         )
 
-        auc = roc_auc_score(
-            y_test,
-            probs
-        )
+        try:
+            auc = roc_auc_score(
+                y_test,
+                probs
+            )
+        except ValueError:
+            auc = np.nan
 
         cm = confusion_matrix(
             y_test,

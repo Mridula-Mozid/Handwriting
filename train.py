@@ -418,10 +418,13 @@ def train_one_fold(
             preds
         )
 
-        val_auc = roc_auc_score(
-            true_labels,
-            probs
-        )
+        try:
+            val_auc = roc_auc_score(
+                true_labels,
+                probs
+            )
+        except ValueError:
+            val_auc = np.nan
 
         scheduler.step(val_auc)
 
@@ -540,10 +543,13 @@ def evaluate_model(model, test_loader):
         zero_division=0
     )
 
-    auc = roc_auc_score(
-        true_labels,
-        probs
-    )
+    try:
+        auc = roc_auc_score(
+            true_labels,
+            probs
+        )
+    except ValueError:
+        auc = np.nan
 
     cm = confusion_matrix(
         true_labels,
@@ -622,6 +628,16 @@ def run_cross_validation():
         train_df = metadata_df.iloc[train_idx]
 
         test_df = metadata_df.iloc[test_idx]
+
+        # ============================================================
+        # LABEL DISTRIBUTION CHECK
+        # ============================================================
+
+        print("Train label distribution:")
+        print(train_df["label"].value_counts())
+
+        print("\nTest label distribution:")
+        print(test_df["label"].value_counts())
 
         # ============================================================
         # DATASETS
