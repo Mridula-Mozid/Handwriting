@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from pathlib import Path
+from typing import Optional
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
@@ -30,6 +31,15 @@ BINARY_DIR = OUTPUT_BASE / "binary"
 
 QC_DIR = OUTPUT_BASE / "quality_check"
 
+STEP_VIS_DIR = OUTPUT_BASE / "step_visualizations"
+
+STEP_VISUALIZATION_INDICES = {
+
+    "healthy": {1, 2},
+
+    "parkinson": {6, 7}
+}
+
 CLASSES = ["healthy", "parkinson"]
 
 IMG_SIZE = 224
@@ -47,6 +57,7 @@ for base_dir in [GRAY_DIR, BINARY_DIR]:
         os.makedirs(base_dir / cls, exist_ok=True)
 
 os.makedirs(QC_DIR, exist_ok=True)
+os.makedirs(STEP_VIS_DIR, exist_ok=True)
 
 metadata_records = []
 
@@ -175,6 +186,8 @@ def preprocess_image(img):
         11
     )
 
+    raw_threshold = binary.copy()
+
     kernel = np.ones((2, 2), np.uint8)
 
     binary = cv2.morphologyEx(
@@ -188,6 +201,8 @@ def preprocess_image(img):
         cv2.MORPH_CLOSE,
         kernel
     )
+
+    morphology_output = binary.copy()
 
     binary = remove_small_components(binary)
 
@@ -213,7 +228,18 @@ def preprocess_image(img):
         IMG_SIZE
     )
 
-    return final_gray, final_binary
+    steps = {
+    "gray": gray,
+    "denoised": denoised,
+    "enhanced": enhanced,
+    "threshold": raw_threshold,
+    "morphology": morphology_output,
+    "cropped_gray": cropped_gray,
+    "final_gray": final_gray,
+    "final_binary": final_binary
+}
+
+    return final_gray, final_binary, steps
 
 def save_quality_check(
 
@@ -259,6 +285,71 @@ def save_quality_check(
         combined
     )
 
+def save_step_visualization(steps, original, filename):
+
+    step_names = [
+        "Original",
+        "Grayscale",
+        "Denoised",
+        "CLAHE",
+        "Threshold",
+        "Morphology",
+        "Cropped",
+        "Final Gray",
+        "Final Binary"
+    ]
+
+    images = [
+        original,
+        steps["gray"],
+        steps["denoised"],
+        steps["enhanced"],
+        steps["threshold"],
+        steps["morphology"],
+        steps["cropped_gray"],
+        steps["final_gray"],
+        steps["final_binary"]
+    ]
+
+    processed_images = []
+
+    for img in images:
+
+        if len(img.shape) == 2:
+
+            img = cv2.cvtColor(
+                img,
+                cv2.COLOR_GRAY2BGR
+            )
+
+        img = cv2.resize(img, (224, 224))
+
+        processed_images.append(img)
+    rows = []
+
+    for i in range(0, 9, 3):
+        row = np.hstack(processed_images[i:i+3])
+        rows.append(row)
+
+    combined = np.vstack(rows)
+
+    for idx, name in enumerate(step_names):
+        x = (idx % 3) * 224 + 10
+        y = (idx // 3) * 224 + 30
+
+        cv2.putText(
+            combined,
+            name,
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            3
+        )
+
+    save_path = STEP_VIS_DIR / filename
+    cv2.imwrite(str(save_path), combined)
+
 def process_dataset(input_base: Path = None, output_base: Path = None):
 
     print("\n================================================")
@@ -282,16 +373,18 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
     print(f"Output Root: {output_base}")
 
     # Per-dataset output directories (keeps different datasets separate)
-    global GRAY_DIR, BINARY_DIR, QC_DIR
+    global GRAY_DIR, BINARY_DIR, QC_DIR, STEP_VIS_DIR
     GRAY_DIR = output_base / "grayscale"
     BINARY_DIR = output_base / "binary"
     QC_DIR = output_base / "quality_check"
+    STEP_VIS_DIR = output_base / "step_visualizations"
 
     for base_dir in [GRAY_DIR, BINARY_DIR]:
         for cls in CLASSES:
             os.makedirs(base_dir / cls, exist_ok=True)
 
     os.makedirs(QC_DIR, exist_ok=True)
+    os.makedirs(STEP_VIS_DIR, exist_ok=True)
 
     total_processed = 0
     total_skipped = 0
@@ -308,14 +401,12 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
 
         print(f"\nProcessing class: {cls}")
 
-        image_files = sorted(os.listdir(input_folder))
+        image_files = [
+            img_name for img_name in sorted(os.listdir(input_folder))
+            if Path(img_name).suffix.lower() in SUPPORTED_EXTENSIONS
+        ]
 
-        for img_name in tqdm(image_files):
-
-            ext = Path(img_name).suffix.lower()
-
-            if ext not in SUPPORTED_EXTENSIONS:
-                continue
+        for image_index, img_name in enumerate(tqdm(image_files), start=1):
 
             img_path = input_folder / img_name
 
@@ -340,7 +431,7 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                 # Preprocess
                 # --------------------------------------------------
 
-                gray_img, binary_img = preprocess_image(img)
+                gray_img, binary_img, steps = preprocess_image(img)
 
                 # --------------------------------------------------
                 # Save outputs
@@ -375,6 +466,15 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                     img_name
                 )
 
+                if image_index in STEP_VISUALIZATION_INDICES.get(cls, set()):
+
+                    save_step_visualization(
+                        steps,
+                        img,
+                        f"{cls}_{img_name}"
+                    )
+
+                
                 # --------------------------------------------------
                 # Metadata
                 # --------------------------------------------------
