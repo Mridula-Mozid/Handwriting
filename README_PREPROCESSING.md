@@ -2,7 +2,7 @@
 
 ## Overview
 
-The preprocessing module standardizes raw handwriting spiral images into research-grade datasets suitable for both deep learning and classical machine learning. It is designed to run per dataset so `Public_Dataset` and `BD_Dataset` remain fully separated.
+The preprocessing module standardizes raw handwriting spiral images into research-grade datasets suitable for both deep learning and classical machine learning. It is designed to run per dataset so `Public_Dataset`, `BD_Dataset`, and `HandPD` remain fully separated.
 
 ## Purpose
 
@@ -12,6 +12,7 @@ Naming conventions used in this project:
 
 - Public dataset: healthy `HP...`, Parkinson `PP...`
 - BD dataset: healthy `BHP...`, Parkinson `BPP...`
+- HandPD dataset: healthy `HPHP###`, Parkinson `HPPD###`
 
 ## Processing Stages
 
@@ -19,6 +20,7 @@ Naming conventions used in this project:
 - Non-local means denoising
 - CLAHE contrast enhancement
 - Adaptive thresholding
+- HandPD-specific blue-ink masking to suppress the black template
 - Morphological cleanup
 - Small-component filtering
 - Foreground normalization
@@ -29,6 +31,11 @@ Naming conventions used in this project:
 
 ```
 preprocessed_images/
+├── HandPD/
+│   ├── grayscale/
+│   ├── binary/
+│   ├── quality_check/
+│   └── metadata.csv
 ├── Public_Dataset/
 │   ├── grayscale/
 │   ├── binary/
@@ -53,6 +60,10 @@ python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Datase
 
 # BD
 python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\BD_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset"
+
+# HandPD
+python rename_handpd_files.py
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\HandPD\Spiral_HandPD_Standardized" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\HandPD" --dataset-name HandPD
 ```
 
 Each run produces dataset-specific metadata and images without cross-dataset mixing.

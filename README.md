@@ -4,7 +4,7 @@
 
 This research project develops and validates machine learning approaches for detecting Parkinson's disease from handwritten spiral patterns. The study implements both deep learning (CNNs) and classical machine learning (SVM, Random Forest, XGBoost) pipelines, enabling comprehensive performance comparison and clinical interpretability analysis.
 
-The raw handwriting datasets now use consistent naming schemes. Public dataset samples use `HP` (healthy) and `PP` (Parkinson), while BD dataset samples use `BHP` (healthy) and `BPP` (Parkinson), followed by zero-padded patient IDs. This keeps preprocessing, metadata generation, and downstream tracking stable and publication-friendly.
+The raw handwriting datasets now use consistent naming schemes. Public dataset samples use `HP` (healthy) and `PP` (Parkinson), BD dataset samples use `BHP` (healthy) and `BPP` (Parkinson), and HandPD samples use `HPHP###` (healthy) and `HPPD###` (Parkinson), followed by zero-padded participant IDs. This keeps preprocessing, metadata generation, and downstream tracking stable and publication-friendly.
 
 ## Scientific Motivation
 
@@ -16,31 +16,29 @@ The research pipeline operates on spiral handwriting images organized by patient
 
 ```
 ├── preprocessed_images/
+│   ├── HandPD/
 │   ├── Public_Dataset/
-│   │   ├── grayscale/
-│   │   ├── binary/
-│   │   ├── quality_check/
-│   │   └── metadata.csv
 │   └── BD_Dataset/
-│       ├── grayscale/
-│       ├── binary/
-│       ├── quality_check/
-│       └── metadata.csv
 ├── handcrafted_features_classical_ml/
 │   ├── Public_Dataset/
-│   └── BD_Dataset/
+│   ├── BD_Dataset/
+│   └── HandPD/
 ├── trained_models_checkpoints/
 │   ├── Public_Dataset/
-│   └── BD_Dataset/
+│   ├── BD_Dataset/
+│   └── HandPD/
 ├── deep_learning_results/
 │   ├── Public_Dataset/
-│   └── BD_Dataset/
+│   ├── BD_Dataset/
+│   └── HandPD/
 ├── classical_ml_results/
 │   ├── Public_Dataset/
-│   └── BD_Dataset/
+│   ├── BD_Dataset/
+│   └── HandPD/
 └── model_interpretability_visualizations/
     ├── Public_Dataset/
-    └── BD_Dataset/
+    ├── BD_Dataset/
+    └── HandPD/
 ```
 
 For a plain-English explanation of the generated folders and CSV files, see [README_DATA_FILES.md](README_DATA_FILES.md). For the full journal-style write-up, see [REPORT_JOURNAL_STYLE.md](REPORT_JOURNAL_STYLE.md).
@@ -64,7 +62,7 @@ Generates Grad-CAM visualizations from trained deep learning models, identifying
 
 ## Execution Instructions
 
-### Run Full Pipeline (Both Datasets)
+### Run Full Pipeline (All Datasets)
 
 ```bash
 # Activate virtual environment
@@ -77,25 +75,33 @@ pip install -r requirements.txt
 # Optional: normalize BD image names to BHP/BPP convention
 python rename_bd_files.py
 
+# Optional: standardize HandPD into participant-aware folders and filenames
+python rename_handpd_files.py
+
 # 1) Preprocess each dataset separately
 python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\Public_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset"
 python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\BD_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset"
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\HandPD\Spiral_HandPD_Standardized" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\HandPD" --dataset-name HandPD
 
 # 2) Extract handcrafted features per dataset
 python feature_extraction.py --dataset Public_Dataset
 python feature_extraction.py --dataset BD_Dataset
+python feature_extraction.py --dataset HandPD
 
 # 3) Run classical ML per dataset
 python H_ML_pipeline.py --dataset Public_Dataset
 python H_ML_pipeline.py --dataset BD_Dataset
+python H_ML_pipeline.py --dataset HandPD
 
 # 4) Train deep learning per dataset
 python train.py --dataset Public_Dataset
 python train.py --dataset BD_Dataset
+python train.py --dataset HandPD
 
 # 5) Generate Grad-CAM per dataset (example uses fold 1)
 python H_grad_cam.py --dataset Public_Dataset --model-fold 1
 python H_grad_cam.py --dataset BD_Dataset --model-fold 1
+python H_grad_cam.py --dataset HandPD --model-fold 1
 
 # 6) Create cross-dataset comparison outputs
 python compare_datasets_results.py
@@ -109,22 +115,27 @@ Each stage is independently executable and should be run with dataset tags:
 # Preprocessing
 python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\Public_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\Public_Dataset"
 python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\BD_Dataset" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset"
+python preprocessing.py --input-base "D:\Final Semester\Thesis Work\Codes\Dataset\Spiral_Handwriting\HandPD\Spiral_HandPD_Standardized" --output-base "D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\HandPD" --dataset-name HandPD
 
 # Feature extraction
 python feature_extraction.py --dataset Public_Dataset
 python feature_extraction.py --dataset BD_Dataset
+python feature_extraction.py --dataset HandPD
 
 # Deep learning
 python train.py --dataset Public_Dataset
 python train.py --dataset BD_Dataset
+python train.py --dataset HandPD
 
 # Classical ML
 python H_ML_pipeline.py --dataset Public_Dataset
 python H_ML_pipeline.py --dataset BD_Dataset
+python H_ML_pipeline.py --dataset HandPD
 
 # Interpretability
 python H_grad_cam.py --dataset Public_Dataset --model-fold 1
 python H_grad_cam.py --dataset BD_Dataset --model-fold 1
+python H_grad_cam.py --dataset HandPD --model-fold 1
 ```
 
 ## Output Artifacts and Naming Convention

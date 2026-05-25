@@ -2,7 +2,7 @@
 
 ## Overview
 
-Grad-CAM provides visual explanations for deep neural network predictions by highlighting image regions that most influenced the output. In this project, Grad-CAM is run separately for `Public_Dataset` and `BD_Dataset`.
+Grad-CAM provides visual explanations for deep neural network predictions by highlighting image regions that most influenced the output. In this project, Grad-CAM is run separately for `Public_Dataset`, `BD_Dataset`, and `HandPD`.
 
 ## Runtime Labeling
 
@@ -28,6 +28,11 @@ model_interpretability_visualizations/
     ├── healthy_*_preview.png
     ├── parkinson_*_gradcam.png
     └── parkinson_*_preview.png
+└── HandPD/
+    ├── healthy_*_gradcam.png
+    ├── healthy_*_preview.png
+    ├── parkinson_*_gradcam.png
+    └── parkinson_*_preview.png
 ```
 
 Each preview image contains original image, heatmap, and overlay.
@@ -40,6 +45,9 @@ python H_grad_cam.py --dataset Public_Dataset --model-fold 1
 
 # BD dataset, fold 1 model
 python H_grad_cam.py --dataset BD_Dataset --model-fold 1
+
+# HandPD dataset, fold 1 model
+python H_grad_cam.py --dataset HandPD --model-fold 1
 ```
 
 ## Notes

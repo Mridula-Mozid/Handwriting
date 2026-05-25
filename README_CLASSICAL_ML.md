@@ -37,6 +37,11 @@ classical_ml_results/
     ├── SVM_fold_1_cm.png
     ├── RandomForest_fold_1_cm.png
     └── XGBoost_fold_1_cm.png
+└── HandPD/
+    ├── classical_ml_results.csv
+    ├── SVM_fold_1_cm.png
+    ├── RandomForest_fold_1_cm.png
+    └── XGBoost_fold_1_cm.png
 ```
 
 ## Running the Pipeline
@@ -47,6 +52,9 @@ python H_ML_pipeline.py --dataset Public_Dataset
 
 # BD
 python H_ML_pipeline.py --dataset BD_Dataset
+
+# HandPD
+python H_ML_pipeline.py --dataset HandPD
 ```
 
 Prerequisite per dataset:

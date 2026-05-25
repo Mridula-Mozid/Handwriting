@@ -4,6 +4,7 @@ import os
 import cv2
 import random
 import warnings
+import re
 import numpy as np
 import pandas as pd
 
@@ -42,6 +43,24 @@ STEP_VISUALIZATION_INDICES = {
 
 CLASSES = ["healthy", "parkinson"]
 
+CLASS_ALIASES = {
+    "healthy": "healthy",
+    "health": "healthy",
+    "control": "healthy",
+    "hc": "healthy",
+    "parkinson": "parkinson",
+    "pd": "parkinson",
+    "patient": "parkinson",
+}
+
+HANDPD_SUBJECT_PREFIX = {
+    "healthy": "HPHP",
+    "parkinson": "HPPD",
+}
+
+HANDPD_BLUE_LOWER = np.array([90, 35, 35])
+HANDPD_BLUE_UPPER = np.array([140, 255, 255])
+
 IMG_SIZE = 224
 
 SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg"]
@@ -79,9 +98,110 @@ def validate_image(img):
 def extract_patient_id(filename):
     stem = Path(filename).stem
 
-    parts = stem.split("_")
+    if "_" in stem:
+        return stem.split("_")[0]
 
-    return parts[0]
+    if "-" in stem:
+        return stem.split("-")[0]
+
+    return stem
+
+def canonical_dataset_name(dataset_name: Optional[str]) -> str:
+    if not dataset_name:
+        return "default"
+
+    return str(dataset_name).strip()
+
+def canonical_class_name(class_name: str) -> str:
+    normalized = str(class_name).strip().lower()
+    return CLASS_ALIASES.get(normalized, normalized)
+
+def is_handpd_dataset(dataset_name: str) -> bool:
+    return dataset_name.lower() == "handpd"
+
+def infer_class_folder(input_base: Path, class_name: str) -> Path:
+    canonical = canonical_class_name(class_name)
+
+    direct_match = input_base / canonical
+    if direct_match.exists():
+        return direct_match
+
+    for child in input_base.iterdir():
+        if child.is_dir() and canonical_class_name(child.name) == canonical:
+            return child
+
+    raise FileNotFoundError(
+        f"Missing folder for class '{class_name}' under:\n{input_base}"
+    )
+
+def iter_image_files(folder: Path):
+    for path in sorted(folder.rglob("*")):
+        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
+            yield path
+
+def extract_sample_index(stem: str, fallback_index: int) -> int:
+    matches = re.findall(r"(?:hand_spiral[_-]?|[_-])(\d+)$", stem, flags=re.IGNORECASE)
+    if matches:
+        return int(matches[-1])
+
+    trailing_match = re.search(r"[-_](\d+)$", stem)
+    if trailing_match:
+        return int(trailing_match.group(1))
+
+    return fallback_index
+
+def normalize_subject_serial(subject_token: str) -> str:
+    digits = re.findall(r"\d+", str(subject_token))
+    if not digits:
+        return str(subject_token).strip()
+
+    serial_value = int("".join(digits))
+    return f"{serial_value:03d}"
+
+def build_subject_id(class_name: str, subject_token: str, dataset_name: str) -> str:
+    canonical_class = canonical_class_name(class_name)
+
+    if is_handpd_dataset(dataset_name):
+        prefix = HANDPD_SUBJECT_PREFIX.get(canonical_class)
+        if prefix is None:
+            raise ValueError(f"Unsupported HandPD class: {class_name}")
+
+        return f"{prefix}{normalize_subject_serial(subject_token)}"
+
+    return str(subject_token).strip()
+
+def parse_subject_and_sample(path: Path, class_name: str, dataset_name: str, fallback_index: int):
+    stem = path.stem
+    parent_name = path.parent.name
+    canonical_class = canonical_class_name(class_name)
+
+    if is_handpd_dataset(dataset_name):
+        standardized_subject_match = re.match(r"^(HPHP|HPPD)(\d{3})$", stem, flags=re.IGNORECASE)
+        if standardized_subject_match:
+            subject_token = standardized_subject_match.group(0).upper()
+            sample_index = extract_sample_index(stem, fallback_index)
+            return subject_token, sample_index
+
+        parent_standardized_match = re.match(r"^(HPHP|HPPD)(\d{3})$", parent_name, flags=re.IGNORECASE)
+        if parent_standardized_match:
+            subject_token = parent_standardized_match.group(0).upper()
+        else:
+            candidate_token = parent_name if parent_name != canonical_class else extract_patient_id(stem)
+            subject_token = build_subject_id(canonical_class, candidate_token, dataset_name)
+
+        sample_index = extract_sample_index(stem, fallback_index)
+        return subject_token, sample_index
+
+    subject_token = extract_patient_id(stem)
+    sample_index = extract_sample_index(stem, fallback_index)
+
+    return subject_token, sample_index
+
+def build_output_filename(subject_id: str, sample_index: int, dataset_name: str, suffix: str) -> str:
+    if is_handpd_dataset(dataset_name):
+        return f"{subject_id}_hand_spiral_{sample_index:02d}{suffix}"
+
+    return f"{subject_id}{suffix}"
 
 def normalize_foreground(binary_img):
     white_ratio = np.mean(binary_img > 127)
@@ -153,7 +273,28 @@ def resize_with_padding(img, size=224):
 
     return canvas
 
-def preprocess_image(img):
+def build_handpd_blue_mask(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    blue_mask = cv2.inRange(hsv, HANDPD_BLUE_LOWER, HANDPD_BLUE_UPPER)
+
+    kernel = np.ones((2, 2), np.uint8)
+
+    blue_mask = cv2.morphologyEx(
+        blue_mask,
+        cv2.MORPH_OPEN,
+        kernel
+    )
+
+    blue_mask = cv2.morphologyEx(
+        blue_mask,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    return normalize_foreground(blue_mask)
+
+def preprocess_image(img, dataset_name="default"):
     gray = cv2.cvtColor(
         img,
         cv2.COLOR_BGR2GRAY
@@ -171,20 +312,23 @@ def preprocess_image(img):
 
     enhanced = clahe.apply(denoised)
 
-    binary = cv2.adaptiveThreshold(
+    if is_handpd_dataset(dataset_name):
+        binary = build_handpd_blue_mask(img)
+    else:
+        binary = cv2.adaptiveThreshold(
 
-        enhanced,
+            enhanced,
 
-        255,
+            255,
 
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
 
-        cv2.THRESH_BINARY_INV,
+            cv2.THRESH_BINARY_INV,
 
-        31,
+            31,
 
-        11
-    )
+            11
+        )
 
     raw_threshold = binary.copy()
 
@@ -229,15 +373,15 @@ def preprocess_image(img):
     )
 
     steps = {
-    "gray": gray,
-    "denoised": denoised,
-    "enhanced": enhanced,
-    "threshold": raw_threshold,
-    "morphology": morphology_output,
-    "cropped_gray": cropped_gray,
-    "final_gray": final_gray,
-    "final_binary": final_binary
-}
+        "gray": gray,
+        "denoised": denoised,
+        "enhanced": enhanced,
+        "threshold": raw_threshold if not is_handpd_dataset(dataset_name) else binary.copy(),
+        "morphology": morphology_output,
+        "cropped_gray": cropped_gray,
+        "final_gray": final_gray,
+        "final_binary": final_binary
+    }
 
     return final_gray, final_binary, steps
 
@@ -350,7 +494,7 @@ def save_step_visualization(steps, original, filename):
     save_path = STEP_VIS_DIR / filename
     cv2.imwrite(str(save_path), combined)
 
-def process_dataset(input_base: Path = None, output_base: Path = None):
+def process_dataset(input_base: Optional[Path] = None, output_base: Optional[Path] = None, dataset_name: Optional[str] = None):
 
     print("\n================================================")
     print("STARTING HANDWRITING PREPROCESSING")
@@ -363,7 +507,7 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
     if output_base is None:
         output_base = OUTPUT_BASE
 
-    dataset_tag = output_base.name
+    dataset_tag = canonical_dataset_name(dataset_name or output_base.name or input_base.name)
 
     # Reset metadata for each run so per-dataset outputs do not mix.
     metadata_records.clear()
@@ -391,24 +535,15 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
 
     for cls in CLASSES:
 
-        input_folder = Path(input_base) / cls
-
-        if not input_folder.exists():
-
-            raise FileNotFoundError(
-                f"Missing folder:\n{input_folder}"
-            )
+        input_folder = infer_class_folder(Path(input_base), cls)
 
         print(f"\nProcessing class: {cls}")
 
-        image_files = [
-            img_name for img_name in sorted(os.listdir(input_folder))
-            if Path(img_name).suffix.lower() in SUPPORTED_EXTENSIONS
-        ]
+        image_files = list(iter_image_files(input_folder))
 
         for image_index, img_name in enumerate(tqdm(image_files), start=1):
 
-            img_path = input_folder / img_name
+            img_path = img_name
 
             try:
 
@@ -427,23 +562,39 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                     total_skipped += 1
                     continue
 
+                if img is None:
+                    total_skipped += 1
+                    continue
+
+                img_height, img_width = img.shape[:2]
+
                 # --------------------------------------------------
                 # Preprocess
                 # --------------------------------------------------
 
-                gray_img, binary_img, steps = preprocess_image(img)
+                gray_img, binary_img, steps = preprocess_image(img, dataset_name=dataset_tag)
+
+                subject_id, sample_index = parse_subject_and_sample(
+                    img_path,
+                    cls,
+                    dataset_tag,
+                    image_index
+                )
+
+                output_filename = build_output_filename(
+                    subject_id,
+                    sample_index,
+                    dataset_tag,
+                    img_path.suffix.lower()
+                )
 
                 # --------------------------------------------------
                 # Save outputs
                 # --------------------------------------------------
 
-                gray_save_path = (
-                    GRAY_DIR / cls / img_name
-                )
+                gray_save_path = GRAY_DIR / cls / output_filename
 
-                binary_save_path = (
-                    BINARY_DIR / cls / img_name
-                )
+                binary_save_path = BINARY_DIR / cls / output_filename
 
                 cv2.imwrite(
                     str(gray_save_path),
@@ -463,7 +614,7 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                     img,
                     gray_img,
                     binary_img,
-                    img_name
+                    output_filename
                 )
 
                 if image_index in STEP_VISUALIZATION_INDICES.get(cls, set()):
@@ -471,7 +622,7 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                     save_step_visualization(
                         steps,
                         img,
-                        f"{cls}_{img_name}"
+                        f"{cls}_{output_filename}"
                     )
 
                 
@@ -479,17 +630,31 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                 # Metadata
                 # --------------------------------------------------
 
-                patient_id = extract_patient_id(
-                    img_name
-                )
+                patient_id = subject_id
 
                 metadata_records.append({
 
-                    "filename": img_name,
+                    "dataset_name": dataset_tag,
+
+                    "subject_id": subject_id,
+
+                    "filename": output_filename,
+
+                    "original_filename": img_path.name,
 
                     "patient_id": patient_id,
 
+                    "master_patient_id": subject_id,
+
                     "class": cls,
+
+                    "class_label": cls,
+
+                    "sample_index": sample_index,
+
+                    "image_path": str(img_path),
+
+                    "processed_path": str(gray_save_path),
 
                     "gray_path": str(gray_save_path),
 
@@ -498,6 +663,7 @@ def process_dataset(input_base: Path = None, output_base: Path = None):
                     "height": img.shape[0],
 
                     "width": img.shape[1]
+                    if img is not None else 0
                 })
 
                 total_processed += 1
@@ -561,10 +727,13 @@ if __name__ == "__main__":
                         help='Path to dataset root containing Healthy/ and Parkinson/ folders')
     parser.add_argument('--output-base', type=str, default=None,
                         help='Path to write preprocessed images and metadata (overrides default)')
+    parser.add_argument('--dataset-name', type=str, default=None,
+                        help='Dataset tag used for dataset-specific preprocessing and metadata')
 
     args = parser.parse_args()
 
     input_base = Path(args.input_base) if args.input_base else None
     output_base = Path(args.output_base) if args.output_base else None
 
-    process_dataset(input_base=input_base, output_base=output_base)
+    process_dataset(input_base=input_base, output_base=output_base, dataset_name=args.dataset_name)
+

@@ -199,6 +199,11 @@ for idx, row in tqdm(metadata_df.iterrows(), total=len(metadata_df)):
 
         binary_path = row["binary_path"]
 
+        skeleton_binary_path = row.get("skeleton_binary_path", binary_path)
+
+        if pd.isna(skeleton_binary_path) or not str(skeleton_binary_path).strip():
+            skeleton_binary_path = binary_path
+
         label = row["label"]
 
         patient_id = row["patient_id"]
@@ -216,10 +221,21 @@ for idx, row in tqdm(metadata_df.iterrows(), total=len(metadata_df)):
 
         binary_img = cv2.imread(
 
-            binary_path,
+            str(skeleton_binary_path),
 
             cv2.IMREAD_GRAYSCALE
         )
+
+        if gray_img is None or binary_img is None:
+
+            if skeleton_binary_path != binary_path:
+
+                binary_img = cv2.imread(
+
+                    binary_path,
+
+                    cv2.IMREAD_GRAYSCALE
+                )
 
         if gray_img is None or binary_img is None:
 
@@ -248,7 +264,9 @@ for idx, row in tqdm(metadata_df.iterrows(), total=len(metadata_df)):
 
             "patient_id": patient_id,
 
-            "label": label
+            "label": label,
+
+            "binary_source_path": str(skeleton_binary_path)
         }
 
         for i, value in enumerate(features):

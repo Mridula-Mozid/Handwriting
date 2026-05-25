@@ -2,7 +2,7 @@
 
 ## Overview
 
-This module extracts seven categories of hand-engineered features from preprocessed handwriting images. It is dataset-aware and writes separate outputs for `Public_Dataset` and `BD_Dataset`.
+This module extracts seven categories of hand-engineered features from preprocessed handwriting images. It is dataset-aware and writes separate outputs for `Public_Dataset`, `BD_Dataset`, and `HandPD`.
 
 ## Feature Categories
 
@@ -28,6 +28,11 @@ handcrafted_features_classical_ml/
     ├── class_labels.npy
     ├── patient_identifiers.npy
     └── handcrafted_features_table.csv
+└── HandPD/
+    ├── handcrafted_features.npy
+    ├── class_labels.npy
+    ├── patient_identifiers.npy
+    └── handcrafted_features_table.csv
 ```
 
 ## Runtime Labeling
@@ -42,6 +47,9 @@ python feature_extraction.py --dataset Public_Dataset
 
 # BD
 python feature_extraction.py --dataset BD_Dataset
+
+# HandPD
+python feature_extraction.py --dataset HandPD
 ```
 
 Prerequisite per dataset:
