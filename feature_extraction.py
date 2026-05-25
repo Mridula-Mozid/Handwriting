@@ -10,9 +10,12 @@ Extracted Features:
 2. LBP
 3. Stroke density
 4. Contour morphology
-5. Skeleton statistics
-6. Hu moments
-7. Image entropy
+5. Fractal dimension
+6. Stroke width statistics
+7. Skeleton statistics
+8. Skeleton branching statistics
+9. Hu moments
+10. Image entropy
 
 Outputs:
 --------
@@ -85,16 +88,78 @@ metadata_df["label"] = metadata_df["class"].map({
 # FEATURE EXTRACTION
 # =========================================================================
 
+def fractal_dimension(binary_img):
+
+    binary = binary_img > 0
+
+    def boxcount(img, k):
+
+        S = np.add.reduceat(
+            np.add.reduceat(
+                img,
+                np.arange(0, img.shape[0], k),
+                axis=0
+            ),
+            np.arange(0, img.shape[1], k),
+            axis=1
+        )
+
+        return len(np.where(S > 0)[0])
+
+    sizes = 2 ** np.arange(1, 8)
+
+    counts = []
+
+    for size in sizes:
+        counts.append(boxcount(binary, size))
+
+    counts = np.maximum(np.array(counts, dtype=float), 1.0)
+
+    coeffs = np.polyfit(
+        np.log(sizes),
+        np.log(counts),
+        1
+    )
+
+    return -coeffs[0]
+
 def extract_features(gray_img, binary_img):
     features = []
-    hog_features = hog(gray_img, orientations=9, pixels_per_cell=(16, 16), cells_per_block=(2, 2), block_norm='L2-Hys', feature_vector=True)
+
+    gray_img = gray_img.astype(np.float32) / 255.0
+
+    hog_features = hog(
+        gray_img,
+        orientations=6,
+        pixels_per_cell=(32, 32),
+        cells_per_block=(2, 2),
+        block_norm='L2-Hys',
+        feature_vector=True
+    )
+
     features.extend(hog_features)
-    radius = 2
-    n_points = 8 * radius
-    lbp = local_binary_pattern(gray_img, n_points, radius, method='uniform')
-    lbp_hist, _ = np.histogram(lbp.ravel(), bins=np.arange(0, n_points + 3), range=(0, n_points + 2))
+
+    radius = 1
+
+    n_points = 8
+
+    lbp = local_binary_pattern(
+        gray_img,
+        n_points,
+        radius,
+        method='uniform'
+    )
+
+    lbp_hist, _ = np.histogram(
+        lbp.ravel(),
+        bins=np.arange(0, n_points + 3),
+        range=(0, n_points + 2)
+    )
+
     lbp_hist = lbp_hist.astype("float")
+
     lbp_hist /= (lbp_hist.sum() + 1e-6)
+
     features.extend(lbp_hist)
 
     white_pixels = np.sum(binary_img > 127)
@@ -113,6 +178,8 @@ def extract_features(gray_img, binary_img):
 
     contour_circularities = []
 
+    contour_compactness = []
+
     for c in contours:
 
         area = cv2.contourArea(c)
@@ -122,6 +189,10 @@ def extract_features(gray_img, binary_img):
         contour_areas.append(area)
 
         contour_perimeters.append(perimeter)
+
+        compactness = area / (perimeter + 1e-8)
+
+        contour_compactness.append(compactness)
 
         if perimeter > 0:
 
@@ -153,12 +224,64 @@ def extract_features(gray_img, binary_img):
         if contour_circularities else 0
     )
 
+    features.append(
+        np.mean(contour_compactness)
+        if contour_compactness else 0
+    )
+
+    fd = fractal_dimension(binary_img)
+    features.append(fd)
+
+    distance = cv2.distanceTransform(
+        binary_img,
+        cv2.DIST_L2,
+        5
+    )
+
+    foreground_pixels = distance[binary_img > 0]
+
+    if len(foreground_pixels) > 0:
+
+        stroke_width_mean = np.mean(foreground_pixels)
+
+        stroke_width_std = np.std(foreground_pixels)
+
+    else:
+
+        stroke_width_mean = 0
+
+        stroke_width_std = 0
+
+    features.append(stroke_width_mean)
+
+    features.append(stroke_width_std)
+
     binary_bool = binary_img > 127
     skeleton = skeletonize(binary_bool)
     skeleton_pixels = np.sum(skeleton)
     skeleton_density = skeleton_pixels / total_pixels
     features.append(skeleton_pixels)
     features.append(skeleton_density)
+
+    kernel = np.array([
+        [1, 1, 1],
+        [1, 10, 1],
+        [1, 1, 1]
+    ])
+
+    neighbor_count = cv2.filter2D(
+        skeleton.astype(np.uint8),
+        -1,
+        kernel
+    )
+
+    branch_points = np.sum(neighbor_count >= 13)
+
+    end_points = np.sum(neighbor_count == 11)
+
+    features.append(branch_points)
+
+    features.append(end_points)
 
     moments = cv2.moments(binary_img)
     hu_moments = cv2.HuMoments(moments)

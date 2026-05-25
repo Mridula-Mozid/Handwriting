@@ -52,8 +52,9 @@ import seaborn as sns
 
 from pathlib import Path
 
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, mutual_info_classif
+from sklearn.calibration import CalibratedClassifierCV
 
 from sklearn.pipeline import Pipeline
 
@@ -128,12 +129,6 @@ sgkf = StratifiedGroupKFold(
 
 cv_splits = list(sgkf.split(features, labels, patient_ids))
 
-min_train_samples = min(len(train_idx) for train_idx, _ in cv_splits)
-
-safe_pca_components = min(64, features.shape[1], max(1, min_train_samples - 1))
-
-print(f"Using PCA Components: {safe_pca_components}")
-
 # =========================================================================
 # MODELS
 # =========================================================================
@@ -146,8 +141,21 @@ models = {
 
     "SVM": Pipeline([
         ('scaler', StandardScaler()),
-        ('pca', PCA(n_components=safe_pca_components, random_state=SEED)),
-        ('clf', SVC(kernel='rbf', probability=True, class_weight='balanced', random_state=SEED))
+        ('feature_selection', SelectKBest(
+            score_func=mutual_info_classif,
+            k=64
+        )),
+        ('clf', CalibratedClassifierCV(
+            estimator=SVC(
+                kernel='rbf',
+                C=3,
+                gamma='scale',
+                class_weight='balanced',
+                random_state=SEED
+            ),
+            method='sigmoid',
+            cv=3
+        ))
     ]),
 
     # =====================================================================
@@ -156,13 +164,16 @@ models = {
 
 "RandomForest": Pipeline([
     ('scaler', StandardScaler()),
-    ('pca', PCA(
-        n_components=safe_pca_components,
-        random_state=SEED
+    ('feature_selection', SelectKBest(
+        score_func=mutual_info_classif,
+        k=64
     )),
     ('clf', RandomForestClassifier(
         n_estimators=300,
-        max_depth=10,
+        max_depth=6,
+        min_samples_split=4,
+        min_samples_leaf=2,
+        max_features='sqrt',
         class_weight='balanced',
         random_state=SEED
     ))
@@ -174,16 +185,19 @@ models = {
 
 "XGBoost": Pipeline([
     ('scaler', StandardScaler()),
-    ('pca', PCA(
-        n_components=safe_pca_components,
-        random_state=SEED
+    ('feature_selection', SelectKBest(
+        score_func=mutual_info_classif,
+        k=64
     )),
     ('clf', XGBClassifier(
-        n_estimators=200,
+        n_estimators=100,
         learning_rate=0.03,
-        max_depth=4,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        max_depth=3,
+        min_child_weight=3,
+        subsample=0.7,
+        colsample_bytree=0.7,
+        reg_alpha=1.0,
+        reg_lambda=2.0,
         eval_metric='logloss',
         random_state=SEED
     ))
