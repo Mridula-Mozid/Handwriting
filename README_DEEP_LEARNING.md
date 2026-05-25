@@ -86,11 +86,14 @@ The final reported metrics are the mean and standard deviation across all folds.
 # Public dataset
 python train.py --dataset Public_Dataset
 
+# HandPD dataset
+python train.py --dataset HandPD
+
 # BD dataset
 python train.py --dataset BD_Dataset
 ```
 
-Prerequisites: Requires `preprocessed_images/Public_Dataset/metadata.csv` and/or `preprocessed_images/BD_Dataset/metadata.csv` from the preprocessing stage.
+Prerequisites: Requires `preprocessed_images/Public_Dataset/metadata.csv`, `preprocessed_images/HandPD/metadata.csv`, and/or `preprocessed_images/BD_Dataset/metadata.csv` from the preprocessing stage.
 
 Expected runtime: 1-2 hours on GPU, 5-10 hours on CPU.
 

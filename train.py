@@ -30,6 +30,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from torchvision import transforms, models
+import torchvision.transforms.functional as TF
 
 from sklearn.model_selection import StratifiedGroupKFold
 
@@ -117,9 +118,9 @@ BATCH_SIZE = 8
 
 EPOCHS = 40
 
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 5e-5
 
-PATIENCE = 7
+PATIENCE = 10
 
 NUM_CLASSES = 2
 
@@ -212,12 +213,17 @@ class HandwritingDataset(Dataset):
 
 train_transform = transforms.Compose([
 
-    transforms.RandomRotation(5),
+    transforms.RandomRotation(3),
 
     transforms.RandomAffine(
         degrees=0,
         translate=(0.03, 0.03),
         scale=(0.97, 1.03)
+    ),
+
+    transforms.ColorJitter(
+        brightness=0.08,
+        contrast=0.08
     ),
 
     transforms.ToTensor(),
@@ -241,8 +247,6 @@ test_transform = transforms.Compose([
 # =========================================================================
 # EXPORT / ANALYSIS HELPERS
 # =========================================================================
-
-DEFAULT_THRESHOLD = 0.5
 
 
 def safe_roc_auc_score(true_labels, probabilities):
@@ -271,6 +275,83 @@ def forward_penultimate(model, inputs):
     features = torch.flatten(features, 1)
 
     return features
+
+
+def infer_logits(model, images, use_tta=False):
+
+    outputs = model(images)
+
+    if use_tta:
+        rotated_images = TF.rotate(images, angle=3)
+        rotated_outputs = model(rotated_images)
+        outputs = (outputs + rotated_outputs) / 2
+
+    return outputs
+
+
+def collect_probabilities(model, data_loader, use_tta=False):
+
+    model.eval()
+
+    true_labels = []
+    probabilities = []
+
+    with torch.no_grad():
+
+        for images, labels, _ in data_loader:
+
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            outputs = infer_logits(
+                model,
+                images,
+                use_tta=use_tta
+            )
+
+            batch_probabilities = torch.softmax(outputs, dim=1)[:, 1]
+
+            true_labels.extend(labels.cpu().numpy())
+            probabilities.extend(batch_probabilities.cpu().numpy())
+
+    return np.asarray(true_labels), np.asarray(probabilities)
+
+
+def optimize_threshold(true_labels, probabilities):
+
+    best_threshold = 0.5
+    best_balanced_accuracy = -1.0
+    best_youden_index = -1.0
+
+    for threshold in np.arange(0.30, 0.701, 0.01):
+
+        predicted_labels = (probabilities >= threshold).astype(int)
+
+        cm = confusion_matrix(
+            true_labels,
+            predicted_labels,
+            labels=[0, 1]
+        )
+
+        tn, fp, fn, tp = cm.ravel()
+
+        sensitivity = tp / (tp + fn + 1e-8)
+        specificity = tn / (tn + fp + 1e-8)
+        balanced_accuracy = (sensitivity + specificity) / 2
+        youden_index = sensitivity + specificity - 1
+
+        if (
+            balanced_accuracy > best_balanced_accuracy
+            or (
+                np.isclose(balanced_accuracy, best_balanced_accuracy)
+                and youden_index > best_youden_index
+            )
+        ):
+            best_threshold = float(np.round(threshold, 2))
+            best_balanced_accuracy = balanced_accuracy
+            best_youden_index = youden_index
+
+    return best_threshold
 
 
 def label_distribution_dict(labels):
@@ -324,7 +405,8 @@ def export_run_metadata():
         "preprocessed_root": str(DATA_ROOT),
         "model_type": "resnet18",
         "modality": "handwriting",
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_selection": "balanced_accuracy_with_youden_tiebreak",
+        "optimized_threshold": None,
         "use_binary_images": USE_BINARY_IMAGES,
         "image_size": IMG_SIZE,
         "batch_size": BATCH_SIZE,
@@ -418,6 +500,10 @@ def build_model():
     # UNFREEZE FINAL RESIDUAL BLOCK
     # ================================================================
 
+    for param in model.layer3.parameters():
+
+        param.requires_grad = True
+
     for param in model.layer4.parameters():
 
         param.requires_grad = True
@@ -440,12 +526,20 @@ def train_one_fold(
     model,
     train_loader,
     val_loader,
+    train_df,
     fold_num
 ):
 
+    label_counts = train_df["label"].value_counts().to_dict()
+    healthy_count = max(int(label_counts.get(0, 0)), 1)
+    pd_count = max(int(label_counts.get(1, 0)), 1)
+
     class_weights = torch.tensor(
-        [1.0, 1.2]
-    ).to(DEVICE)
+        [1.0 / healthy_count, 1.0 / pd_count],
+        dtype=torch.float32,
+        device=DEVICE
+    )
+    class_weights = class_weights / class_weights.mean()
 
     criterion = nn.CrossEntropyLoss(
         weight=class_weights
@@ -530,7 +624,11 @@ def train_one_fold(
 
                 labels = labels.to(DEVICE)
 
-                outputs = model(images)
+                outputs = infer_logits(
+                    model,
+                    images,
+                    use_tta=False
+                )
 
                 probabilities = torch.softmax(
                     outputs,
@@ -605,13 +703,24 @@ def train_one_fold(
         best_model_weights
     )
 
-    return model
+    val_true_labels, val_probabilities = collect_probabilities(
+        model,
+        val_loader,
+        use_tta=True
+    )
+
+    best_threshold = optimize_threshold(
+        val_true_labels,
+        val_probabilities
+    )
+
+    return model, best_threshold
 
 # =========================================================================
 # EVALUATION
 # =========================================================================
 
-def evaluate_model(model, test_loader):
+def evaluate_model(model, test_loader, best_threshold):
 
     model.eval()
 
@@ -643,20 +752,15 @@ def evaluate_model(model, test_loader):
 
             labels = labels.to(DEVICE)
 
-            outputs = model(images)
+            outputs = infer_logits(
+                model,
+                images,
+                use_tta=True
+            )
 
             embeddings = forward_penultimate(model, images)
 
-            probabilities = torch.softmax(
-                outputs,
-                dim=1
-            )
-
-            predictions = outputs.argmax(dim=1)
-
-            preds.extend(
-                predictions.cpu().numpy()
-            )
+            probabilities = torch.softmax(outputs, dim=1)
 
             probs.extend(
                 probabilities[:, 1].cpu().numpy()
@@ -688,7 +792,9 @@ def evaluate_model(model, test_loader):
 
                 probability_pd = float(probabilities[row_index, 1].cpu().item())
 
-                predicted_class = int(probability_pd >= DEFAULT_THRESHOLD)
+                predicted_class = int(probability_pd >= best_threshold)
+
+                preds.append(predicted_class)
 
                 prediction_rows.append({
 
@@ -702,7 +808,9 @@ def evaluate_model(model, test_loader):
 
                     "predicted_class": predicted_class,
 
-                    "threshold_used": DEFAULT_THRESHOLD,
+                    "threshold_used": best_threshold,
+
+                    "optimized_threshold": best_threshold,
 
                     "modality": "handwriting",
 
@@ -800,7 +908,9 @@ def evaluate_model(model, test_loader):
 
         "predicted_class": preds,
 
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_used": best_threshold,
+
+        "optimized_threshold": best_threshold,
 
         "modality": "handwriting",
 
@@ -842,6 +952,7 @@ def export_standardized_fold_outputs(
     prediction_df,
     embedding_df,
     embedding_matrix,
+    optimized_threshold,
 ):
 
     dataset_predictions_dir = STANDARD_PREDICTIONS_DIR
@@ -853,6 +964,7 @@ def export_standardized_fold_outputs(
 
     prediction_df["fold"] = fold_num
     embedding_df["fold"] = fold_num
+    prediction_df["optimized_threshold"] = optimized_threshold
 
     prediction_path = dataset_predictions_dir / f"fold_{fold_num}_oof_predictions.csv"
     embedding_csv_path = dataset_embeddings_dir / f"fold_{fold_num}_embeddings.csv"
@@ -869,7 +981,8 @@ def export_standardized_fold_outputs(
         "dataset_name": DATASET_TAG,
         "modality": "handwriting",
         "fold": fold_num,
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_used": optimized_threshold,
+        "optimized_threshold": optimized_threshold,
         "accuracy": metrics["accuracy"],
         "precision": metrics["precision"],
         "sensitivity": metrics["sensitivity"],
@@ -944,7 +1057,7 @@ def run_cross_validation():
         random_state=SEED
     )
 
-    X = metadata_df["image_path"]
+    X = metadata_df[["image_path"]]
 
     y = metadata_df["label"]
 
@@ -1045,8 +1158,11 @@ def run_cross_validation():
             model,
             train_loader,
             test_loader,
+            train_df,
             fold_num
         )
+
+        model, best_threshold = model
 
         # ============================================================
         # EVALUATE
@@ -1054,7 +1170,8 @@ def run_cross_validation():
 
         metrics, cm, prediction_df, embedding_df, embedding_matrix = evaluate_model(
             model,
-            test_loader
+            test_loader,
+            best_threshold
         )
 
         all_metrics.append(metrics)
@@ -1074,6 +1191,7 @@ def run_cross_validation():
             prediction_df=prediction_df,
             embedding_df=embedding_df,
             embedding_matrix=embedding_matrix,
+            optimized_threshold=best_threshold,
         )
 
         standardized_fold_metrics.append(standardized_export["fold_metrics_row"])

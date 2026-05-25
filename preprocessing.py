@@ -58,16 +58,14 @@ HANDPD_SUBJECT_PREFIX = {
     "parkinson": "HPPD",
 }
 
-HANDPD_BLUE_LOWER = np.array([90, 35, 35])
-HANDPD_BLUE_UPPER = np.array([140, 255, 255])
+HANDPD_BLUE_LOWER = np.array([95, 60, 60])
+HANDPD_BLUE_UPPER = np.array([135, 255, 255])
 
 IMG_SIZE = 224
 
 SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg"]
 
-MIN_COMPONENT_AREA = 40
-
-PADDING = 20
+MIN_COMPONENT_AREA = 20
 
 for base_dir in [GRAY_DIR, BINARY_DIR]:
 
@@ -212,7 +210,7 @@ def normalize_foreground(binary_img):
 
     return binary_img
 
-def remove_small_components(binary_img):
+def remove_small_components(binary_img, min_area):
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         binary_img,
         connectivity=8
@@ -224,13 +222,13 @@ def remove_small_components(binary_img):
 
         area = stats[i, cv2.CC_STAT_AREA]
 
-        if area >= MIN_COMPONENT_AREA:
+        if area >= min_area:
 
             cleaned[labels == i] = 255
 
     return cleaned
 
-def crop_to_content(img):
+def crop_to_content(img, dataset_name="default"):
     coords = cv2.findNonZero(img)
 
     if coords is None:
@@ -239,12 +237,13 @@ def crop_to_content(img):
 
     x, y, w, h = cv2.boundingRect(coords)
 
-    x = max(x - PADDING, 0)
-    y = max(y - PADDING, 0)
+    padding = 40 if dataset_name.lower() == "bd_dataset" else 20
 
-    w = min(w + 2 * PADDING, img.shape[1] - x)
-    h = min(h + 2 * PADDING, img.shape[0] - y)
-
+    x = max(x - padding, 0)
+    y = max(y - padding, 0)
+    w = min(w + 2 * padding, img.shape[1] - x)
+    h = min(h + 2 * padding, img.shape[0] - y)
+    
     return img[y:y+h, x:x+w]
 
 def resize_with_padding(img, size=224):
@@ -258,7 +257,7 @@ def resize_with_padding(img, size=224):
     resized = cv2.resize(
         img,
         (new_w, new_h),
-        interpolation=cv2.INTER_AREA
+        interpolation=cv2.INTER_CUBIC
     )
 
     canvas = np.zeros((size, size), dtype=np.uint8)
@@ -278,7 +277,7 @@ def build_handpd_blue_mask(img):
 
     blue_mask = cv2.inRange(hsv, HANDPD_BLUE_LOWER, HANDPD_BLUE_UPPER)
 
-    kernel = np.ones((2, 2), np.uint8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
     blue_mask = cv2.morphologyEx(
         blue_mask,
@@ -305,12 +304,22 @@ def preprocess_image(img, dataset_name="default"):
         h=10
     )
 
-    clahe = cv2.createCLAHE(
-        clipLimit=2.0,
-        tileGridSize=(8, 8)
-    )
+    if dataset_name.lower() == "bd_dataset":
+
+        clahe = cv2.createCLAHE(
+            clipLimit=3.0,
+            tileGridSize=(8, 8)
+        )
+
+    else:
+
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0,
+            tileGridSize=(8, 8)
+        )
 
     enhanced = clahe.apply(denoised)
+    enhanced = cv2.medianBlur(enhanced, 3)
 
     if is_handpd_dataset(dataset_name):
         binary = build_handpd_blue_mask(img)
@@ -332,7 +341,10 @@ def preprocess_image(img, dataset_name="default"):
 
     raw_threshold = binary.copy()
 
-    kernel = np.ones((2, 2), np.uint8)
+    if dataset_name.lower() == "bd_dataset":
+        kernel = np.ones((3, 3), np.uint8)
+    else:
+        kernel = np.ones((2, 2), np.uint8)
 
     binary = cv2.morphologyEx(
         binary,
@@ -348,7 +360,10 @@ def preprocess_image(img, dataset_name="default"):
 
     morphology_output = binary.copy()
 
-    binary = remove_small_components(binary)
+    if dataset_name.lower() == "bd_dataset":
+        binary = remove_small_components(binary, min_area=20)
+    else:
+        binary = remove_small_components(binary, min_area=40)
 
     binary = normalize_foreground(binary)
 
@@ -358,9 +373,9 @@ def preprocess_image(img, dataset_name="default"):
         mask=binary
     )
 
-    cropped_gray = crop_to_content(masked_gray)
+    cropped_gray = crop_to_content(enhanced, dataset_name=dataset_name)
 
-    cropped_binary = crop_to_content(binary)
+    cropped_binary = crop_to_content(binary, dataset_name=dataset_name)
 
     final_gray = resize_with_padding(
         cropped_gray,
