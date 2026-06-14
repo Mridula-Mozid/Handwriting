@@ -1,2 +1,2 @@
-dataset_name,modality,fold,threshold_used,accuracy,precision,sensitivity,specificity,f1_score,roc_auc,tn,fp,fn,tp,train_healthy_count,train_pd_count,train_patient_count,val_healthy_count,val_pd_count,val_patient_count
-Public_Dataset,handwriting,2,0.5,0.7777777777777778,0.8,0.4444444444444444,0.944444443919753,0.5714285714285714,0.925925925925926,17,1,5,4,33,42,75,18,9,27
+dataset_name,modality,fold,threshold_used,optimized_threshold,accuracy,precision,sensitivity,specificity,f1_score,roc_auc,tn,fp,fn,tp,train_healthy_count,train_pd_count,train_patient_count,val_healthy_count,val_pd_count,val_patient_count
+Public_Dataset,handwriting,2,0.17,0.17,1.0,1.0,1.0,0.9999999989999999,1.0,1.0,10,0,0,10,123,41,164,10,10,20

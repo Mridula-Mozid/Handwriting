@@ -18,6 +18,19 @@ What remains in the workspace:
 - README and report documents
 - Folder structure for output regeneration
 
+## Verified Run Snapshot
+
+The latest completed and verified 5-fold deep-learning run currently available in the workspace is for `Public_Dataset`.
+
+- Accuracy: 0.9705 ± 0.0270
+- Precision: 0.9636 ± 0.0498
+- Sensitivity: 0.9818 ± 0.0407
+- Specificity: 0.9600 ± 0.0548
+- F1-score: 0.9714 ± 0.0261
+- ROC-AUC: 0.9922 ± 0.0083
+
+The `HandPD` full 5-fold run was executed and partially verified fold-by-fold, but the final aggregate summary was not available in the captured terminal output at the time of this update.
+
 ## Historical Metrics Snapshot (Most Recent Completed Full Run)
 
 These numbers are copied from the latest journal-style report and represent the most recent full run before cleanup.

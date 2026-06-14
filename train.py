@@ -74,6 +74,10 @@ import argparse
 parser = argparse.ArgumentParser(description='Train ResNet-18 for handwriting datasets')
 parser.add_argument('--dataset', type=str, default=None,
                     help='Dataset tag (e.g., Public_Dataset or BD_Dataset). If provided reads preprocessed_images/<dataset>/metadata.csv')
+parser.add_argument('--max-folds', type=int, default=None,
+                    help='Optional cap on the number of cross-validation folds to run for quick pilots. Default runs all 5 folds.')
+parser.add_argument('--epochs', type=int, default=None,
+                    help='Optional override for the maximum number of training epochs.')
 args = parser.parse_args()
 
 DATA_ROOT = PROJECT_ROOT / "preprocessed_images"
@@ -116,13 +120,15 @@ IMG_SIZE = 224
 
 BATCH_SIZE = 8
 
-EPOCHS = 40
+EPOCHS = args.epochs if args.epochs is not None else 40
 
 LEARNING_RATE = 5e-5
 
 PATIENCE = 10
 
 NUM_CLASSES = 2
+
+TTA_ROTATIONS = (-5,0,5)
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -213,7 +219,9 @@ class HandwritingDataset(Dataset):
 
 train_transform = transforms.Compose([
 
-    transforms.RandomRotation(3),
+    transforms.Grayscale(num_output_channels=3),
+
+    transforms.RandomRotation(5),
 
     transforms.RandomAffine(
         degrees=0,
@@ -235,6 +243,8 @@ train_transform = transforms.Compose([
 ])
 
 test_transform = transforms.Compose([
+
+    transforms.Grayscale(num_output_channels=3),
 
     transforms.ToTensor(),
 
@@ -282,9 +292,18 @@ def infer_logits(model, images, use_tta=False):
     outputs = model(images)
 
     if use_tta:
-        rotated_images = TF.rotate(images, angle=3)
-        rotated_outputs = model(rotated_images)
-        outputs = (outputs + rotated_outputs) / 2
+
+        tta_outputs = [outputs]
+
+        for rotation_angle in TTA_ROTATIONS:
+
+            if rotation_angle == 0:
+                continue
+
+            rotated_images = TF.rotate(images, angle=rotation_angle)
+            tta_outputs.append(model(rotated_images))
+
+        outputs = torch.stack(tta_outputs, dim=0).mean(dim=0)
 
     return outputs
 
@@ -320,10 +339,10 @@ def collect_probabilities(model, data_loader, use_tta=False):
 def optimize_threshold(true_labels, probabilities):
 
     best_threshold = 0.5
+    best_accuracy = -1.0
     best_balanced_accuracy = -1.0
-    best_youden_index = -1.0
 
-    for threshold in np.arange(0.30, 0.701, 0.01):
+    for threshold in np.arange(0.10, 0.901, 0.01):
 
         predicted_labels = (probabilities >= threshold).astype(int)
 
@@ -335,21 +354,21 @@ def optimize_threshold(true_labels, probabilities):
 
         tn, fp, fn, tp = cm.ravel()
 
+        accuracy = (tn + tp) / max(tn + fp + fn + tp, 1)
         sensitivity = tp / (tp + fn + 1e-8)
         specificity = tn / (tn + fp + 1e-8)
         balanced_accuracy = (sensitivity + specificity) / 2
-        youden_index = sensitivity + specificity - 1
 
         if (
-            balanced_accuracy > best_balanced_accuracy
+            accuracy > best_accuracy
             or (
-                np.isclose(balanced_accuracy, best_balanced_accuracy)
-                and youden_index > best_youden_index
+                np.isclose(accuracy, best_accuracy)
+                and balanced_accuracy > best_balanced_accuracy
             )
         ):
             best_threshold = float(np.round(threshold, 2))
+            best_accuracy = accuracy
             best_balanced_accuracy = balanced_accuracy
-            best_youden_index = youden_index
 
     return best_threshold
 
@@ -439,39 +458,6 @@ def build_model():
     )
 
     # ================================================================
-    # SAVE ORIGINAL RGB CONV1 WEIGHTS
-    # ================================================================
-
-    original_conv1_weights = (
-        model.conv1.weight.data.clone()
-    )
-
-    # ================================================================
-    # REPLACE INPUT LAYER FOR GRAYSCALE INPUT
-    # ================================================================
-
-    model.conv1 = nn.Conv2d(
-        in_channels=1,
-        out_channels=64,
-        kernel_size=7,
-        stride=2,
-        padding=3,
-        bias=False
-    )
-
-    # ================================================================
-    # INITIALIZE NEW CONV1 USING
-    # AVERAGED RGB PRETRAINED WEIGHTS
-    # ================================================================
-
-    model.conv1.weight.data = (
-        original_conv1_weights.mean(
-            dim=1,
-            keepdim=True
-        )
-    )
-
-    # ================================================================
     # REPLACE CLASSIFICATION HEAD
     # ================================================================
 
@@ -495,6 +481,10 @@ def build_model():
     for param in model.conv1.parameters():
 
         param.requires_grad = True
+
+    # ================================================================
+    # UNFREEZE EARLY RESIDUAL BLOCK FOR DOMAIN ADAPTATION
+    # ================================================================
 
     # ================================================================
     # UNFREEZE FINAL RESIDUAL BLOCK
@@ -541,8 +531,10 @@ def train_one_fold(
     )
     class_weights = class_weights / class_weights.mean()
 
+    
     criterion = nn.CrossEntropyLoss(
-        weight=class_weights
+        weight=class_weights,
+        label_smoothing=0.05
     )
 
     optimizer = torch.optim.AdamW(
@@ -1077,6 +1069,9 @@ def run_cross_validation():
         groups
     ):
 
+        if args.max_folds is not None and fold_num > args.max_folds:
+            break
+
         print("\n================================================")
         print(f"[{DATASET_TAG}][Fold {fold_num}] START")
         print("================================================\n")
@@ -1113,6 +1108,19 @@ def run_cross_validation():
             "validation_healthy_count": int((test_df["label"] == 0).sum()),
             "validation_pd_count": int((test_df["label"] == 1).sum()),
         })
+
+        healthy_df = train_df[train_df["label"] == 0]
+        pd_df = train_df[train_df["label"] == 1]
+
+        healthy_augmented = pd.concat(
+            [healthy_df] * 3,
+            ignore_index=True
+    )
+
+        train_df = pd.concat(
+            [pd_df, healthy_augmented],
+            ignore_index=True
+    ).sample(frac=1, random_state=42)
 
         # ============================================================
         # DATASETS

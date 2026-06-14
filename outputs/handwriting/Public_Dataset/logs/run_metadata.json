@@ -5,13 +5,14 @@
   "preprocessed_root": "D:\\Final Semester\\Thesis Work\\Codes\\Handwriting\\preprocessed_images\\Public_Dataset",
   "model_type": "resnet18",
   "modality": "handwriting",
-  "threshold_used": 0.5,
+  "threshold_selection": "balanced_accuracy_with_youden_tiebreak",
+  "optimized_threshold": null,
   "use_binary_images": false,
   "image_size": 224,
   "batch_size": 8,
   "epochs": 40,
-  "learning_rate": 0.0001,
-  "patience": 7,
+  "learning_rate": 5e-05,
+  "patience": 10,
   "group_split": "StratifiedGroupKFold",
   "n_splits": 5
 }

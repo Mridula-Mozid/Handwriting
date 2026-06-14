@@ -84,11 +84,12 @@ print(f"Standardized Output Directory: {STANDARD_OUTPUT_ROOT}")
 
 transform = transforms.Compose([
 
+    transforms.Grayscale(num_output_channels=3),
     transforms.ToTensor(),
 
     transforms.Normalize(
-        mean=[0.5],
-        std=[0.5]
+        mean=[0.5,0.5,0.5],
+        std=[0.5,0.5,0.5]
     )
 ])
 
@@ -98,7 +99,6 @@ transform = transforms.Compose([
 
 def build_model():
     model = models.resnet18(weights=None)
-    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
     model.fc = nn.Linear(model.fc.in_features, 2)
 
     return model
@@ -187,12 +187,29 @@ model.eval()
 # TARGET LAYER
 # ============================================================
 
-target_layer = model.layer4
+target_layer = model.layer4[-1]
 
 gradcam = GradCAM(
     model,
     target_layer
 )
+
+PREDICTIONS_PATH = (
+    PROJECT_ROOT
+    / "outputs"
+    / "handwriting"
+    / DATASET_TAG
+    / "predictions"
+    / f"fold_{args.model_fold}_oof_predictions.csv"
+)
+
+pred_df = pd.read_csv(PREDICTIONS_PATH)
+
+BEST_THRESHOLD = float(
+    pred_df["optimized_threshold"].iloc[0]
+)
+
+print("Using threshold:", BEST_THRESHOLD)
 
 # ============================================================
 # VALIDATION SPLIT / SELECTION
@@ -243,7 +260,7 @@ def predict_row(row):
         probabilities = torch.softmax(logits, dim=1)
 
     probability_pd = float(probabilities[:, 1].item())
-    predicted_class = int(probability_pd >= 0.5)
+    predicted_class = int(probability_pd >= BEST_THRESHOLD)
 
     return {
         "source_index": int(row.name),
