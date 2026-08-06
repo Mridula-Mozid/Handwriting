@@ -5,7 +5,7 @@ FINAL RESEARCH-GRADE VERSION (UPDATED)
 ========================================================================
 
 Key Improvements:
-- Proper grayscale adaptation of pretrained EfficientNet-B0
+- Proper grayscale adaptation of pretrained ResNet-18
 - Conv1 initialized using pretrained RGB weights
 - Conv1 is trainable (scientifically correct)
 - Layer freezing strategy improved
@@ -18,7 +18,6 @@ import copy
 import json
 import random
 import warnings
-from xml.parsers.expat import model
 import numpy as np
 import pandas as pd
 
@@ -31,6 +30,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from torchvision import transforms, models
+import torchvision.transforms.functional as TF
 
 from sklearn.model_selection import StratifiedGroupKFold
 
@@ -71,9 +71,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 import argparse
 
-parser = argparse.ArgumentParser(description='Train EfficientNet-B0 for handwriting datasets')
+parser = argparse.ArgumentParser(description='Train ResNet-18 for handwriting datasets')
 parser.add_argument('--dataset', type=str, default=None,
                     help='Dataset tag (e.g., Public_Dataset or BD_Dataset). If provided reads preprocessed_images/<dataset>/metadata.csv')
+parser.add_argument('--max-folds', type=int, default=None,
+                    help='Optional cap on the number of cross-validation folds to run for quick pilots. Default runs all 5 folds.')
+parser.add_argument('--epochs', type=int, default=None,
+                    help='Optional override for the maximum number of training epochs.')
 args = parser.parse_args()
 
 DATA_ROOT = PROJECT_ROOT / "preprocessed_images"
@@ -116,13 +120,15 @@ IMG_SIZE = 224
 
 BATCH_SIZE = 8
 
-EPOCHS = 40
+EPOCHS = args.epochs if args.epochs is not None else 40
 
 LEARNING_RATE = 5e-5
 
-PATIENCE = 7
+PATIENCE = 10
 
 NUM_CLASSES = 2
+
+TTA_ROTATIONS = (-5,0,5)
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -162,6 +168,7 @@ class HandwritingDataset(Dataset):
     def __init__(self, dataframe, transform=None):
 
         self.df = dataframe.reset_index(drop=True)
+
         self.transform = transform
 
     def __len__(self):
@@ -173,17 +180,28 @@ class HandwritingDataset(Dataset):
         row = self.df.iloc[idx]
 
         image_path = row["image_path"]
+
         label = row["label"]
+
         patient_id = row["patient_id"]
+
         master_patient_id = row["master_patient_id"] if "master_patient_id" in row else patient_id
+
         image_name = row["filename"] if "filename" in row else Path(image_path).name
 
         try:
+
             image = Image.open(image_path).convert("L")
+
         except Exception:
-            image = Image.new("L", (IMG_SIZE, IMG_SIZE))
+
+            image = Image.new(
+                "L",
+                (IMG_SIZE, IMG_SIZE)
+            )
 
         if self.transform:
+
             image = self.transform(image)
 
         metadata = {
@@ -195,45 +213,50 @@ class HandwritingDataset(Dataset):
 
         return image, label, metadata
 
-
 # =========================================================================
 # TRANSFORMS
 # =========================================================================
 
 train_transform = transforms.Compose([
+
+    transforms.Grayscale(num_output_channels=3),
+
     transforms.RandomRotation(5),
+
     transforms.RandomAffine(
         degrees=0,
         translate=(0.03, 0.03),
         scale=(0.97, 1.03)
     ),
-    transforms.GaussianBlur(
-        kernel_size=3,
-        sigma=(0.1, 0.5)
+
+    transforms.ColorJitter(
+        brightness=0.08,
+        contrast=0.08
     ),
+
     transforms.ToTensor(),
+
     transforms.Normalize(
         mean=[0.5],
         std=[0.5]
     )
 ])
 
-val_transform = transforms.Compose([
+test_transform = transforms.Compose([
+
+    transforms.Grayscale(num_output_channels=3),
+
     transforms.ToTensor(),
+
     transforms.Normalize(
         mean=[0.5],
         std=[0.5]
     )
 ])
-
-test_transform = val_transform
-
 
 # =========================================================================
 # EXPORT / ANALYSIS HELPERS
 # =========================================================================
-
-DEFAULT_THRESHOLD = 0.5
 
 
 def safe_roc_auc_score(true_labels, probabilities):
@@ -248,11 +271,106 @@ def safe_roc_auc_score(true_labels, probabilities):
 
 def forward_penultimate(model, inputs):
 
-    features = model.features(inputs)
+    features = model.conv1(inputs)
+    features = model.bn1(features)
+    features = model.relu(features)
+    features = model.maxpool(features)
+
+    features = model.layer1(features)
+    features = model.layer2(features)
+    features = model.layer3(features)
+    features = model.layer4(features)
+
     features = model.avgpool(features)
     features = torch.flatten(features, 1)
 
     return features
+
+
+def infer_logits(model, images, use_tta=False):
+
+    outputs = model(images)
+
+    if use_tta:
+
+        tta_outputs = [outputs]
+
+        for rotation_angle in TTA_ROTATIONS:
+
+            if rotation_angle == 0:
+                continue
+
+            rotated_images = TF.rotate(images, angle=rotation_angle)
+            tta_outputs.append(model(rotated_images))
+
+        outputs = torch.stack(tta_outputs, dim=0).mean(dim=0)
+
+    return outputs
+
+
+def collect_probabilities(model, data_loader, use_tta=False):
+
+    model.eval()
+
+    true_labels = []
+    probabilities = []
+
+    with torch.no_grad():
+
+        for images, labels, _ in data_loader:
+
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            outputs = infer_logits(
+                model,
+                images,
+                use_tta=use_tta
+            )
+
+            batch_probabilities = torch.softmax(outputs, dim=1)[:, 1]
+
+            true_labels.extend(labels.cpu().numpy())
+            probabilities.extend(batch_probabilities.cpu().numpy())
+
+    return np.asarray(true_labels), np.asarray(probabilities)
+
+
+def optimize_threshold(true_labels, probabilities):
+
+    best_threshold = 0.5
+    best_accuracy = -1.0
+    best_balanced_accuracy = -1.0
+
+    for threshold in np.arange(0.10, 0.901, 0.01):
+
+        predicted_labels = (probabilities >= threshold).astype(int)
+
+        cm = confusion_matrix(
+            true_labels,
+            predicted_labels,
+            labels=[0, 1]
+        )
+
+        tn, fp, fn, tp = cm.ravel()
+
+        accuracy = (tn + tp) / max(tn + fp + fn + tp, 1)
+        sensitivity = tp / (tp + fn + 1e-8)
+        specificity = tn / (tn + fp + 1e-8)
+        balanced_accuracy = (sensitivity + specificity) / 2
+
+        if (
+            accuracy > best_accuracy
+            or (
+                np.isclose(accuracy, best_accuracy)
+                and balanced_accuracy > best_balanced_accuracy
+            )
+        ):
+            best_threshold = float(np.round(threshold, 2))
+            best_accuracy = accuracy
+            best_balanced_accuracy = balanced_accuracy
+
+    return best_threshold
 
 
 def label_distribution_dict(labels):
@@ -304,9 +422,10 @@ def export_run_metadata():
         "dataset": DATASET_TAG,
         "metadata_path": str(METADATA_PATH),
         "preprocessed_root": str(DATA_ROOT),
-        "model_type": "efficientnet_b0",
+        "model_type": "resnet18",
         "modality": "handwriting",
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_selection": "balanced_accuracy_with_youden_tiebreak",
+        "optimized_threshold": None,
         "use_binary_images": USE_BINARY_IMAGES,
         "image_size": IMG_SIZE,
         "batch_size": BATCH_SIZE,
@@ -324,7 +443,6 @@ def export_run_metadata():
 
     return run_metadata_path
 
-
 # =========================================================================
 # MODEL
 # =========================================================================
@@ -332,50 +450,19 @@ def export_run_metadata():
 def build_model():
 
     # ================================================================
-    # LOAD IMAGENET PRETRAINED EFFICIENTNET-B0
+    # LOAD IMAGENET PRETRAINED RESNET-18
     # ================================================================
 
-    model = models.efficientnet_b0(
-        weights=models.EfficientNet_B0_Weights.DEFAULT
-    )
-
-    # ================================================================
-    # SAVE ORIGINAL RGB STEM WEIGHTS
-    # ================================================================
-
-    original_stem_weights = model.features[0][0].weight.clone()
-
-    # ================================================================
-    # REPLACE INPUT LAYER FOR GRAYSCALE INPUT
-    # ================================================================
-
-    model.features[0][0] = nn.Conv2d(
-        in_channels=1,
-        out_channels=32,
-        kernel_size=3,
-        stride=2,
-        padding=1,
-        bias=False
-    )
-
-    # ================================================================
-    # INITIALIZE NEW STEM USING
-    # AVERAGED RGB PRETRAINED WEIGHTS
-    # ================================================================
-
-    model.features[0][0].weight.data = (
-        original_stem_weights.mean(
-            dim=1,
-            keepdim=True
-        )
+    model = models.resnet18(
+        weights=models.ResNet18_Weights.DEFAULT
     )
 
     # ================================================================
     # REPLACE CLASSIFICATION HEAD
     # ================================================================
 
-    model.classifier[1] = nn.Linear(
-        model.classifier[1].in_features,
+    model.fc = nn.Linear(
+        model.fc.in_features,
         NUM_CLASSES
     )
 
@@ -384,30 +471,39 @@ def build_model():
     # ================================================================
 
     for param in model.parameters():
+
         param.requires_grad = False
 
     # ================================================================
-    # UNFREEZE INPUT STEM
+    # UNFREEZE INPUT LAYER
     # ================================================================
 
-    for param in model.features[0][0].parameters():
+    for param in model.conv1.parameters():
+
         param.requires_grad = True
 
     # ================================================================
-    # UNFREEZE FINAL FEATURE BLOCKS
+    # UNFREEZE EARLY RESIDUAL BLOCK FOR DOMAIN ADAPTATION
     # ================================================================
 
-    for param in model.features[6].parameters():
+    # ================================================================
+    # UNFREEZE FINAL RESIDUAL BLOCK
+    # ================================================================
+
+    for param in model.layer3.parameters():
+
         param.requires_grad = True
 
-    for param in model.features[7].parameters():
+    for param in model.layer4.parameters():
+
         param.requires_grad = True
 
     # ================================================================
     # UNFREEZE CLASSIFICATION HEAD
     # ================================================================
 
-    for param in model.classifier.parameters():
+    for param in model.fc.parameters():
+
         param.requires_grad = True
 
     return model
@@ -420,19 +516,25 @@ def train_one_fold(
     model,
     train_loader,
     val_loader,
+    train_df,
     fold_num
 ):
-    if DATASET_TAG.lower() == "handpd":
-        class_weights = torch.tensor(
-            [2.5, 1.0]
-        ).to(DEVICE)
-    else:
-        class_weights = torch.tensor(
-            [1.0, 1.0]
-        ).to(DEVICE)
 
+    label_counts = train_df["label"].value_counts().to_dict()
+    healthy_count = max(int(label_counts.get(0, 0)), 1)
+    pd_count = max(int(label_counts.get(1, 0)), 1)
+
+    class_weights = torch.tensor(
+        [1.0 / healthy_count, 1.0 / pd_count],
+        dtype=torch.float32,
+        device=DEVICE
+    )
+    class_weights = class_weights / class_weights.mean()
+
+    
     criterion = nn.CrossEntropyLoss(
-        weight=class_weights
+        weight=class_weights,
+        label_smoothing=0.05
     )
 
     optimizer = torch.optim.AdamW(
@@ -514,7 +616,11 @@ def train_one_fold(
 
                 labels = labels.to(DEVICE)
 
-                outputs = model(images)
+                outputs = infer_logits(
+                    model,
+                    images,
+                    use_tta=False
+                )
 
                 probabilities = torch.softmax(
                     outputs,
@@ -589,13 +695,24 @@ def train_one_fold(
         best_model_weights
     )
 
-    return model
+    val_true_labels, val_probabilities = collect_probabilities(
+        model,
+        val_loader,
+        use_tta=True
+    )
+
+    best_threshold = optimize_threshold(
+        val_true_labels,
+        val_probabilities
+    )
+
+    return model, best_threshold
 
 # =========================================================================
 # EVALUATION
 # =========================================================================
 
-def evaluate_model(model, test_loader):
+def evaluate_model(model, test_loader, best_threshold):
 
     model.eval()
 
@@ -627,20 +744,15 @@ def evaluate_model(model, test_loader):
 
             labels = labels.to(DEVICE)
 
-            outputs = model(images)
+            outputs = infer_logits(
+                model,
+                images,
+                use_tta=True
+            )
 
             embeddings = forward_penultimate(model, images)
 
-            probabilities = torch.softmax(
-                outputs,
-                dim=1
-            )
-
-            predictions = outputs.argmax(dim=1)
-
-            preds.extend(
-                predictions.cpu().numpy()
-            )
+            probabilities = torch.softmax(outputs, dim=1)
 
             probs.extend(
                 probabilities[:, 1].cpu().numpy()
@@ -672,7 +784,9 @@ def evaluate_model(model, test_loader):
 
                 probability_pd = float(probabilities[row_index, 1].cpu().item())
 
-                predicted_class = int(probability_pd >= DEFAULT_THRESHOLD)
+                predicted_class = int(probability_pd >= best_threshold)
+
+                preds.append(predicted_class)
 
                 prediction_rows.append({
 
@@ -686,7 +800,9 @@ def evaluate_model(model, test_loader):
 
                     "predicted_class": predicted_class,
 
-                    "threshold_used": DEFAULT_THRESHOLD,
+                    "threshold_used": best_threshold,
+
+                    "optimized_threshold": best_threshold,
 
                     "modality": "handwriting",
 
@@ -784,7 +900,9 @@ def evaluate_model(model, test_loader):
 
         "predicted_class": preds,
 
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_used": best_threshold,
+
+        "optimized_threshold": best_threshold,
 
         "modality": "handwriting",
 
@@ -826,6 +944,7 @@ def export_standardized_fold_outputs(
     prediction_df,
     embedding_df,
     embedding_matrix,
+    optimized_threshold,
 ):
 
     dataset_predictions_dir = STANDARD_PREDICTIONS_DIR
@@ -837,6 +956,7 @@ def export_standardized_fold_outputs(
 
     prediction_df["fold"] = fold_num
     embedding_df["fold"] = fold_num
+    prediction_df["optimized_threshold"] = optimized_threshold
 
     prediction_path = dataset_predictions_dir / f"fold_{fold_num}_oof_predictions.csv"
     embedding_csv_path = dataset_embeddings_dir / f"fold_{fold_num}_embeddings.csv"
@@ -853,7 +973,8 @@ def export_standardized_fold_outputs(
         "dataset_name": DATASET_TAG,
         "modality": "handwriting",
         "fold": fold_num,
-        "threshold_used": DEFAULT_THRESHOLD,
+        "threshold_used": optimized_threshold,
+        "optimized_threshold": optimized_threshold,
         "accuracy": metrics["accuracy"],
         "precision": metrics["precision"],
         "sensitivity": metrics["sensitivity"],
@@ -928,7 +1049,7 @@ def run_cross_validation():
         random_state=SEED
     )
 
-    X = metadata_df["image_path"]
+    X = metadata_df[["image_path"]]
 
     y = metadata_df["label"]
 
@@ -947,6 +1068,9 @@ def run_cross_validation():
         y,
         groups
     ):
+
+        if args.max_folds is not None and fold_num > args.max_folds:
+            break
 
         print("\n================================================")
         print(f"[{DATASET_TAG}][Fold {fold_num}] START")
@@ -984,6 +1108,19 @@ def run_cross_validation():
             "validation_healthy_count": int((test_df["label"] == 0).sum()),
             "validation_pd_count": int((test_df["label"] == 1).sum()),
         })
+
+        healthy_df = train_df[train_df["label"] == 0]
+        pd_df = train_df[train_df["label"] == 1]
+
+        healthy_augmented = pd.concat(
+            [healthy_df] * 3,
+            ignore_index=True
+    )
+
+        train_df = pd.concat(
+            [pd_df, healthy_augmented],
+            ignore_index=True
+    ).sample(frac=1, random_state=42)
 
         # ============================================================
         # DATASETS
@@ -1029,8 +1166,11 @@ def run_cross_validation():
             model,
             train_loader,
             test_loader,
+            train_df,
             fold_num
         )
+
+        model, best_threshold = model
 
         # ============================================================
         # EVALUATE
@@ -1038,7 +1178,8 @@ def run_cross_validation():
 
         metrics, cm, prediction_df, embedding_df, embedding_matrix = evaluate_model(
             model,
-            test_loader
+            test_loader,
+            best_threshold
         )
 
         all_metrics.append(metrics)
@@ -1058,6 +1199,7 @@ def run_cross_validation():
             prediction_df=prediction_df,
             embedding_df=embedding_df,
             embedding_matrix=embedding_matrix,
+            optimized_threshold=best_threshold,
         )
 
         standardized_fold_metrics.append(standardized_export["fold_metrics_row"])
@@ -1116,7 +1258,7 @@ def run_cross_validation():
 
         model_path = (
             MODEL_SAVE_DIR
-            / f"efficientnetb0_fold_{fold_num}.pth"
+            / f"resnet18_fold_{fold_num}.pth"
         )
 
         torch.save(

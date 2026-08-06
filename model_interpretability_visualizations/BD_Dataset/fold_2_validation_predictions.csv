@@ -1,0 +1,23 @@
+source_index,patient_id,master_patient_id,fold,true_label,predicted_probability,predicted_class,threshold_used,modality,dataset_name,image_name,image_path
+2,BHP003,BHP003,2,0,0.8808736205101013,1,0.5,handwriting,BD_Dataset,BHP003.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP003.jpg
+8,BHP009,BHP009,2,0,0.34967637062072754,1,0.5,handwriting,BD_Dataset,BHP009.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP009.jpg
+11,BHP012,BHP012,2,0,0.7393321394920349,1,0.5,handwriting,BD_Dataset,BHP012.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP012.jpg
+18,BHP019,BHP019,2,0,0.048200059682130814,0,0.5,handwriting,BD_Dataset,BHP019.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP019.jpg
+21,BHP022,BHP022,2,0,0.15139344334602356,0,0.5,handwriting,BD_Dataset,BHP022.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP022.jpg
+29,BHP030,BHP030,2,0,0.0644771009683609,0,0.5,handwriting,BD_Dataset,BHP030.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP030.jpg
+31,BHP032,BHP032,2,0,0.8915249705314636,1,0.5,handwriting,BD_Dataset,BHP032.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP032.jpg
+38,BHP039,BHP039,2,0,0.056826092302799225,0,0.5,handwriting,BD_Dataset,BHP039.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP039.jpg
+41,BHP042,BHP042,2,0,0.13541428744792938,0,0.5,handwriting,BD_Dataset,BHP042.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\healthy\BHP042.jpg
+46,BPP001,BPP001,2,1,0.43208277225494385,1,0.5,handwriting,BD_Dataset,BPP001.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP001.jpg
+52,BPP007,BPP007,2,1,0.9801186323165894,1,0.5,handwriting,BD_Dataset,BPP007.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP007.jpg
+57,BPP012,BPP012,2,1,0.9708942770957947,1,0.5,handwriting,BD_Dataset,BPP012.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP012.jpg
+61,BPP016,BPP016,2,1,0.992518424987793,1,0.5,handwriting,BD_Dataset,BPP016.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP016.jpg
+66,BPP021,BPP021,2,1,0.3722293972969055,1,0.5,handwriting,BD_Dataset,BPP021.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP021.jpg
+71,BPP026,BPP026,2,1,0.9773795008659363,1,0.5,handwriting,BD_Dataset,BPP026.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP026.jpg
+76,BPP031,BPP031,2,1,0.969184398651123,1,0.5,handwriting,BD_Dataset,BPP031.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP031.jpg
+82,BPP037,BPP037,2,1,0.9673721194267273,1,0.5,handwriting,BD_Dataset,BPP037.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP037.jpg
+89,BPP044,BPP044,2,1,0.612964928150177,1,0.5,handwriting,BD_Dataset,BPP044.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP044.jpg
+91,BPP046,BPP046,2,1,0.9990593791007996,1,0.5,handwriting,BD_Dataset,BPP046.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP046.jpg
+96,BPP051,BPP051,2,1,0.8972854614257812,1,0.5,handwriting,BD_Dataset,BPP051.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP051.jpg
+102,BPP057,BPP057,2,1,0.5022479295730591,1,0.5,handwriting,BD_Dataset,BPP057.jpg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP057.jpg
+107,BPP062,BPP062,2,1,0.457502156496048,1,0.5,handwriting,BD_Dataset,BPP062.jpeg,D:\Final Semester\Thesis Work\Codes\Handwriting\preprocessed_images\BD_Dataset\grayscale\parkinson\BPP062.jpeg

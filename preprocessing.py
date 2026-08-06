@@ -11,6 +11,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional
 from tqdm import tqdm
+import shutil
 
 warnings.filterwarnings("ignore")
 
@@ -530,6 +531,17 @@ def process_dataset(input_base: Optional[Path] = None, output_base: Optional[Pat
     print(f"Dataset: {dataset_tag}")
     print(f"Input Root: {input_base}")
     print(f"Output Root: {output_base}")
+
+    
+
+    if output_base.exists():
+
+        print(
+            f"\nRemoving existing output folder:\n{output_base}"
+        )
+
+        shutil.rmtree(output_base)
+
 
     # Per-dataset output directories (keeps different datasets separate)
     global GRAY_DIR, BINARY_DIR, QC_DIR, STEP_VIS_DIR
